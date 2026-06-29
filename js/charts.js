@@ -11,7 +11,18 @@ const COLORS = {
   monthly: "#42a5f5",
   ahr999: "#ab47bc",
   buyhold: "#8b98a5",
+  btc: "#5c6b7a",
 };
+
+// 资产 Y 轴是否使用对数刻度（由页面开关控制）。
+let _logScale = false;
+function setLogScale(on) {
+  _logScale = !!on;
+  if (_lastResult) {
+    renderTimingChart(_lastResult);
+    renderDcaChart(_lastResult);
+  }
+}
 
 function pct(x) {
   const v = (x * 100).toFixed(2) + "%";
@@ -27,27 +38,71 @@ function btc(x) {
   return x.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }
 
-function baseChartOption(dates, series) {
+// 资产 Y 轴：随 _logScale 在线性/对数间切换。对数轴下 0 值无意义，min 设 1。
+function equityYAxis(name) {
+  return {
+    type: _logScale ? "log" : "value",
+    name,
+    nameTextStyle: { color: "#8b98a5" },
+    min: _logScale ? 1 : undefined,
+    axisLabel: { color: "#8b98a5", formatter: (v) => money(v) },
+    splitLine: { lineStyle: { color: "#2a3441" } },
+  };
+}
+
+// 单 Y 轴图（定投图用）。
+function singleAxisOption(dates, series) {
   return {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : money(v)) },
     legend: { textStyle: { color: "#e6edf3" }, top: 0 },
     grid: { left: 70, right: 24, top: 40, bottom: 50 },
     xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" } },
-    yAxis: {
-      type: "value",
-      axisLabel: { color: "#8b98a5", formatter: (v) => money(v) },
-      splitLine: { lineStyle: { color: "#2a3441" } },
-    },
+    yAxis: equityYAxis("资产"),
     dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 18 }],
     series,
   };
 }
 
-// 择时组：最优 MA/EMA 与买入持有，同一初始资金的资产曲线。
+// 双 Y 轴图（择时图用）：左轴资产，右轴 BTC 价格。
+function timingChartOption(dates, series) {
+  return {
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : money(v)) },
+    legend: { textStyle: { color: "#e6edf3" }, top: 0 },
+    grid: { left: 70, right: 70, top: 40, bottom: 50 },
+    xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" } },
+    yAxis: [
+      equityYAxis("资产"),
+      {
+        type: _logScale ? "log" : "value",
+        name: "BTC",
+        position: "right",
+        min: _logScale ? 1 : undefined,
+        nameTextStyle: { color: COLORS.btc },
+        axisLabel: { color: COLORS.btc, formatter: (v) => money(v) },
+        splitLine: { show: false },
+      },
+    ],
+    dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 18 }],
+    series,
+  };
+}
+
+// 安全获取/初始化图表实例，容器不存在时返回 null（防止 echarts.init(null) 崩溃）。
+function ensureChart(id, current) {
+  const el = document.getElementById(id);
+  if (!el) {
+    console.warn(`图表容器 #${id} 不存在，可能是页面缓存未更新，请强制刷新（Ctrl+F5）`);
+    return null;
+  }
+  return current || echarts.init(el);
+}
+
+// 择时组：最优 MA/EMA 与买入持有，同一初始资金的资产曲线 + BTC 走势（右Y轴）。
 function renderTimingChart(result) {
-  const el = document.getElementById("timingChart");
-  if (!timingChartInstance) timingChartInstance = echarts.init(el, "dark");
+  timingChartInstance = ensureChart("timingChart", timingChartInstance);
+  if (!timingChartInstance) return;
 
   const dates = result.candles.map((c) => c.date);
   const series = result.strategies
@@ -56,18 +111,30 @@ function renderTimingChart(result) {
       name: s.name,
       type: "line",
       showSymbol: false,
+      yAxisIndex: 0,
       lineStyle: { width: s.key === "buyhold" ? 1.5 : 2, type: s.key === "buyhold" ? "dashed" : "solid" },
       itemStyle: { color: COLORS[s.key] },
       data: s.equity.map((v) => (v == null ? null : Math.round(v))),
     }));
 
-  timingChartInstance.setOption(baseChartOption(dates, series));
+  // 叠加 BTC 收盘价走势，走右侧第二 Y 轴
+  series.push({
+    name: "BTC 价格",
+    type: "line",
+    showSymbol: false,
+    yAxisIndex: 1,
+    lineStyle: { width: 1, color: COLORS.btc },
+    itemStyle: { color: COLORS.btc },
+    data: result.candles.map((c) => c.close),
+  });
+
+  timingChartInstance.setOption(timingChartOption(dates, series), true);
 }
 
 // 定投组：每个策略画两条线——账户市值（实线）与累计投入（虚线）。
 function renderDcaChart(result) {
-  const el = document.getElementById("dcaChart");
-  if (!dcaChartInstance) dcaChartInstance = echarts.init(el, "dark");
+  dcaChartInstance = ensureChart("dcaChart", dcaChartInstance);
+  if (!dcaChartInstance) return;
 
   const dates = result.candles.map((c) => c.date);
   const series = [];
@@ -92,7 +159,7 @@ function renderDcaChart(result) {
     });
   }
 
-  dcaChartInstance.setOption(baseChartOption(dates, series));
+  dcaChartInstance.setOption(singleAxisOption(dates, series), true);
 }
 
 function renderSummaryTable(result) {
@@ -161,6 +228,7 @@ function openTradesModal(key) {
           <button class="modal-close" id="tradesClose">✕</button>
         </div>
         <div class="modal-body">
+          <div id="tradeChart" class="trade-chart"></div>
           <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
         </div>
       </div>
@@ -171,9 +239,84 @@ function openTradesModal(key) {
   document.body.appendChild(wrap.firstElementChild);
 
   const mask = document.getElementById("tradesMask");
-  const close = () => mask.remove();
+  const close = () => {
+    if (tradeChartInstance) { tradeChartInstance.dispose(); tradeChartInstance = null; }
+    mask.remove();
+  };
   document.getElementById("tradesClose").addEventListener("click", close);
   mask.addEventListener("click", (e) => { if (e.target === mask) close(); });
+
+  // 渲染 K 线 + 均线 + 买卖标注
+  renderTradeChart(s);
+}
+
+let tradeChartInstance = null;
+
+// 明细图：BTC 蜡烛图 + 该策略均线 + 买卖点标注。
+function renderTradeChart(strategy) {
+  const candles = _lastResult.candles;
+  const el = document.getElementById("tradeChart");
+  if (!el) return;
+  // 模态框中容器刚插入，延迟一帧确保有尺寸
+  tradeChartInstance = echarts.init(el);
+
+  const dates = candles.map((c) => c.date);
+  const ohlc = candles.map((c) => [c.open, c.close, c.low, c.high]); // ECharts: [open, close, low, high]
+
+  const series = [{
+    name: "BTC",
+    type: "candlestick",
+    data: ohlc,
+    itemStyle: {
+      color: "#26a69a", color0: "#ef5350",
+      borderColor: "#26a69a", borderColor0: "#ef5350",
+    },
+  }];
+
+  // 叠加策略均线（仅择时类有 maLines）
+  const maColors = ["#f7931a", "#42a5f5"];
+  (strategy.maLines || []).forEach((line, i) => {
+    series.push({
+      name: line.name,
+      type: "line",
+      showSymbol: false,
+      lineStyle: { width: 1.5, color: maColors[i % maColors.length] },
+      itemStyle: { color: maColors[i % maColors.length] },
+      data: line.data.map((v) => (v == null ? null : +v.toFixed(2))),
+    });
+  });
+
+  // 买卖点标注（挂在 K 线 series 上）
+  const dateIndex = new Map(dates.map((d, i) => [d, i]));
+  const markData = strategy.trades.map((t) => ({
+    name: t.side === "buy" ? "买入" : "卖出",
+    coord: [t.date, t.price],
+    value: t.side === "buy" ? "B" : "S",
+    itemStyle: { color: t.side === "buy" ? "#26a69a" : "#ef5350" },
+    symbol: t.side === "buy" ? "arrow" : "pin",
+    symbolRotate: t.side === "buy" ? 0 : 180,
+  })).filter((m) => dateIndex.has(m.coord[0]));
+  series[0].markPoint = {
+    symbolSize: 22,
+    label: { color: "#fff", fontSize: 10, formatter: (p) => p.value },
+    data: markData,
+  };
+
+  tradeChartInstance.setOption({
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+    legend: { textStyle: { color: "#e6edf3" }, top: 0 },
+    grid: { left: 64, right: 20, top: 32, bottom: 50 },
+    xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" }, scale: true },
+    yAxis: {
+      scale: true,
+      axisLabel: { color: "#8b98a5", formatter: (v) => money(v) },
+      splitLine: { lineStyle: { color: "#2a3441" } },
+    },
+    dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 16 }],
+    series,
+  });
+  setTimeout(() => tradeChartInstance && tradeChartInstance.resize(), 50);
 }
 
 function renderRankTable(result) {

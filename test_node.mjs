@@ -123,4 +123,16 @@ for (const s of result.strategies.filter((x) => x.kind === "dca")) {
   console.log(`${s.name.padEnd(22)} 末期累计投入=$${Math.round(inv.at(-1))}  末期市值=$${Math.round(s.equity.at(-1))}`);
 }
 
+// 最优 MA/EMA 应携带均线序列供明细图绘制
+console.log("\n=== 均线序列检查 ===");
+for (const s of result.strategies.filter((x) => x.key.startsWith("best_"))) {
+  if (!Array.isArray(s.maLines) || s.maLines.length === 0)
+    throw new Error(`${s.name} 缺少 maLines`);
+  for (const line of s.maLines) {
+    if (!Array.isArray(line.data) || line.data.length !== candles.length)
+      throw new Error(`${s.name} 均线 ${line.name} 长度异常`);
+  }
+  console.log(`${s.name.padEnd(22)} 均线: ${s.maLines.map((l) => l.name).join(", ")}`);
+}
+
 console.log("\n✓ 健全性检查通过");

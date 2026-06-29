@@ -40,7 +40,20 @@ function optimizeMa(candles, closes, type, mode, cfg) {
   }
 
   results.sort((a, b) => b.stats.finalEquity - a.stats.finalEquity);
-  return { results, best: results[0] };
+
+  // 仅为最优结果附上其所用均线序列（供明细图绘制），避免为所有结果存数组。
+  const best = results[0];
+  if (best) {
+    if (mode === "single") {
+      best.maLines = [{ name: best.label, data: getMa(best.params.p) }];
+    } else {
+      best.maLines = [
+        { name: `${type.toUpperCase()}${best.params.short}`, data: getMa(best.params.short) },
+        { name: `${type.toUpperCase()}${best.params.long}`, data: getMa(best.params.long) },
+      ];
+    }
+  }
+  return { results, best };
 }
 
 // 运行整套回测。返回所有结果供 UI 渲染。
@@ -59,6 +72,7 @@ function runBacktest(candles, cfg) {
       key: `best_${t}`,
       equity: opt.best.equity,
       trades: opt.best.trades,
+      maLines: opt.best.maLines,
       stats: opt.best.stats,
       kind: "timing",
     });

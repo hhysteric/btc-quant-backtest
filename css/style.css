@@ -77,6 +77,11 @@ button:hover:not(:disabled) { filter: brightness(1.08); }
 .hidden { display: none !important; }
 
 .chart { width: 100%; height: 460px; }
+.log-toggle {
+  flex-direction: row; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--muted); margin: 0 0 10px; cursor: pointer;
+}
+.log-toggle input { min-width: auto; width: auto; cursor: pointer; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--border); }
@@ -143,6 +148,7 @@ th { color: var(--muted); font-weight: 600; }
 }
 .modal-close:hover { color: var(--text); }
 .modal-body { overflow: auto; padding: 8px 20px 20px; }
+.trade-chart { width: 100%; height: 320px; margin-bottom: 12px; }
 .modal-body table { font-size: 12px; }
 .modal-body th {
   position: sticky; top: 0;

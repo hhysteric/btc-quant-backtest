@@ -14,6 +14,9 @@ $("source").addEventListener("change", () => {
   $("fileFields").classList.toggle("hidden", isApi);
 });
 
+// 对数刻度开关
+$("logScale").addEventListener("change", () => setLogScale($("logScale").checked));
+
 function setDataStatus(msg, isError) {
   const el = $("dataStatus");
   el.textContent = msg;
