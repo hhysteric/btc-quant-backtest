@@ -129,6 +129,10 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
 
       <h3>MA / EMA 参数寻优排行（按最终资产）</h3>
       <div id="rankTable"></div>
+
+      <h3>Rolling 4Y 最优策略收益率变动</h3>
+      <p class="hint" style="margin:-4px 0 8px">每个时间点回看过去 4 年，在当前周期范围内逐根寻优，曲线为该窗口内最优 MA/EMA 策略能达到的总收益率。悬停可看对应最优参数。窗口不足 4 年的早期区间不绘制。</p>
+      <div id="rollingChart" class="chart"></div>
     </section>
   </main>
 

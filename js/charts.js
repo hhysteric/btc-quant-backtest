@@ -319,6 +319,70 @@ function renderTradeChart(strategy) {
   setTimeout(() => tradeChartInstance && tradeChartInstance.resize(), 50);
 }
 
+let rollingChartInstance = null;
+
+// Rolling 4Y：每个时间点窗口内最优策略收益率，MA / EMA 各一条线。
+// 悬停 tooltip 显示对应最优参数（label）。
+function renderRollingChart(result) {
+  rollingChartInstance = ensureChart("rollingChart", rollingChartInstance);
+  if (!rollingChartInstance) return;
+
+  const r = result.rolling;
+  if (!r) return;
+  const dates = r.dates;
+  const series = [];
+  const labelMap = {}; // key -> 每根的最优参数标签，供 tooltip 取用
+  for (const type of ["ma", "ema"]) {
+    if (!r[type]) continue;
+    labelMap[type] = r[type].labels;
+    series.push({
+      name: type === "ma" ? "最优 MA 收益率" : "最优 EMA 收益率",
+      type: "line",
+      showSymbol: false,
+      lineStyle: { width: 2, color: type === "ma" ? COLORS.best_ma : COLORS.best_ema },
+      itemStyle: { color: type === "ma" ? COLORS.best_ma : COLORS.best_ema },
+      data: r[type].returns.map((v) => (v == null ? null : +(v * 100).toFixed(1))),
+    });
+  }
+
+  const hasData = series.some((s) => s.data.some((v) => v != null));
+  rollingChartInstance.setOption({
+    backgroundColor: "transparent",
+    title: hasData ? undefined : {
+      text: "数据不足 4 年，无法计算 Rolling 4Y",
+      left: "center", top: "middle",
+      textStyle: { color: "#8b98a5", fontSize: 14, fontWeight: "normal" },
+    },
+    tooltip: {
+      trigger: "axis",
+      formatter: (params) => {
+        if (!params.length) return "";
+        const idx = params[0].dataIndex;
+        let html = `${params[0].axisValue}`;
+        for (const p of params) {
+          const type = p.seriesName.includes("EMA") ? "ema" : "ma";
+          const lbl = labelMap[type] && labelMap[type][idx];
+          const val = p.value == null ? "-" : `+${p.value}%`;
+          html += `<br/>${p.marker}${p.seriesName}：${val}${lbl ? `（${lbl}）` : ""}`;
+        }
+        return html;
+      },
+    },
+    legend: { textStyle: { color: "#e6edf3" }, top: 0 },
+    grid: { left: 64, right: 24, top: 40, bottom: 50 },
+    xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" } },
+    yAxis: {
+      type: "value",
+      name: "收益率",
+      nameTextStyle: { color: "#8b98a5" },
+      axisLabel: { color: "#8b98a5", formatter: (v) => v + "%" },
+      splitLine: { lineStyle: { color: "#2a3441" } },
+    },
+    dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 18 }],
+    series,
+  }, true);
+}
+
 function renderRankTable(result) {
   const blocks = [];
   for (const type of Object.keys(result.rankings)) {
@@ -348,9 +412,11 @@ function renderResults(result) {
   renderTimingChart(result);
   renderDcaChart(result);
   renderRankTable(result);
+  renderRollingChart(result);
 }
 
 window.addEventListener("resize", () => {
   if (timingChartInstance) timingChartInstance.resize();
   if (dcaChartInstance) dcaChartInstance.resize();
+  if (rollingChartInstance) rollingChartInstance.resize();
 });

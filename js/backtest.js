@@ -56,6 +56,93 @@ function optimizeMa(candles, closes, type, mode, cfg) {
   return { results, best };
 }
 
+// Rolling 4Y：对每根 K 线回看 4 年窗口，在周期范围内逐根寻优，
+// 记录该窗口内「最优策略能达到的收益率」及对应周期。
+// 返回 { dates, windowYears, ma:{ returns, periods, labels }, ema:{...} }。
+const ROLLING_WINDOW_YEARS = 4;
+
+function rollingBestForType(candles, closes, type, cfg) {
+  const n = candles.length;
+  const maFn = type === "ema" ? ema : sma;
+  const periods = periodRange(cfg.periodMin, cfg.periodMax, cfg.periodStep);
+  // 预计算各周期均线 + 信号（满窗一次性算好，窗口内直接切片复用）
+  const single = cfg.maMode === "single";
+  const maArrs = {};
+  for (const p of periods) maArrs[p] = maFn(closes, p);
+
+  const winMs = ROLLING_WINDOW_YEARS * 365 * DAY_MS;
+  const returns = new Array(n).fill(null);
+  const bestPeriods = new Array(n).fill(null);
+  const labels = new Array(n).fill(null);
+
+  let lo = 0;
+  for (let i = 0; i < n; i++) {
+    // 推进窗口左端，使 [lo, i] 覆盖约 4 年
+    while (candles[i].time - candles[lo].time > winMs) lo++;
+    // 窗口太短（不足 4 年）则跳过
+    if (candles[i].time - candles[lo].time < winMs * 0.95) continue;
+
+    let bestRet = -Infinity, bestLabel = null, bestP = null;
+    if (single) {
+      for (const p of periods) {
+        const r = windowTimingReturn(closes, maArrs[p], lo, i);
+        if (r != null && r > bestRet) { bestRet = r; bestP = p; bestLabel = `${type.toUpperCase()}${p}`; }
+      }
+    } else {
+      for (let a = 0; a < periods.length; a++) {
+        for (let b = a + 1; b < periods.length; b++) {
+          const r = windowTimingReturnDouble(closes, maArrs[periods[a]], maArrs[periods[b]], lo, i);
+          if (r != null && r > bestRet) {
+            bestRet = r; bestP = periods[a];
+            bestLabel = `${type.toUpperCase()}${periods[a]}/${periods[b]}`;
+          }
+        }
+      }
+    }
+    if (bestRet > -Infinity) {
+      returns[i] = bestRet;
+      bestPeriods[i] = bestP;
+      labels[i] = bestLabel;
+    }
+  }
+  return { returns, periods: bestPeriods, labels };
+}
+
+// 在 [lo, hi] 窗口内、用单均线信号跑一次满仓择时，返回总收益率。
+// 起始资金任意（用 1），收益率与资金无关。
+function windowTimingReturn(closes, maArr, lo, hi) {
+  let cash = 1, coin = 0;
+  for (let i = lo; i <= hi; i++) {
+    const m = maArr[i];
+    if (m == null) continue;
+    const price = closes[i];
+    if (price > m && cash > 0) { coin = cash / price; cash = 0; }
+    else if (price < m && coin > 0) { cash = coin * price; coin = 0; }
+  }
+  const end = cash + coin * closes[hi];
+  return end - 1; // 起始 1 → 收益率
+}
+
+function windowTimingReturnDouble(closes, shortArr, longArr, lo, hi) {
+  let cash = 1, coin = 0;
+  for (let i = lo; i <= hi; i++) {
+    const s = shortArr[i], l = longArr[i];
+    if (s == null || l == null) continue;
+    const price = closes[i];
+    if (s > l && cash > 0) { coin = cash / price; cash = 0; }
+    else if (s < l && coin > 0) { cash = coin * price; coin = 0; }
+  }
+  const end = cash + coin * closes[hi];
+  return end - 1;
+}
+
+function rollingBest4Y(candles, closes, cfg) {
+  const types = cfg.maType === "both" ? ["ma", "ema"] : [cfg.maType];
+  const out = { dates: candles.map((c) => c.date), windowYears: ROLLING_WINDOW_YEARS };
+  for (const t of types) out[t] = rollingBestForType(candles, closes, t, cfg);
+  return out;
+}
+
 // 运行整套回测。返回所有结果供 UI 渲染。
 function runBacktest(candles, cfg) {
   const closes = candles.map((c) => c.close);
@@ -93,5 +180,6 @@ function runBacktest(candles, cfg) {
   out.strategies.push({ name: "买入持有（基准）", key: "buyhold", equity: bh.equity, trades: bh.trades, stats: bh.stats, kind: "timing" });
 
   out.ahr999 = ahrArr;
+  out.rolling = rollingBest4Y(candles, closes, cfg);
   return out;
 }

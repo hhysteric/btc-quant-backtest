@@ -135,4 +135,47 @@ for (const s of result.strategies.filter((x) => x.key.startsWith("best_"))) {
   console.log(`${s.name.padEnd(22)} 均线: ${s.maLines.map((l) => l.name).join(", ")}`);
 }
 
+// Rolling 4Y 结构检查（样例仅约 2 年，应整列为 null / 数据不足）
+console.log("\n=== Rolling 4Y 结构检查 ===");
+const rolling = result.rolling;
+if (!rolling || !Array.isArray(rolling.dates) || rolling.dates.length !== candles.length)
+  throw new Error("rolling.dates 长度异常");
+if (rolling.windowYears !== 4) throw new Error("rolling.windowYears 应为 4");
+for (const t of ["ma", "ema"]) {
+  const r = rolling[t];
+  if (!r) continue;
+  if (r.returns.length !== candles.length) throw new Error(`rolling.${t}.returns 长度异常`);
+  if (r.periods.length !== candles.length) throw new Error(`rolling.${t}.periods 长度异常`);
+  if (r.labels.length !== candles.length) throw new Error(`rolling.${t}.labels 长度异常`);
+}
+const sampleNonNull = (rolling.ma?.returns || []).filter((v) => v != null).length;
+console.log(`样例（约 2 年）MA 非空点数=${sampleNonNull}（预期 0，数据不足 4 年）`);
+
+// 用合成 5 年日线序列验证「数据充足」时 Rolling 能产出非空收益率
+console.log("\n=== Rolling 4Y 合成数据验证 ===");
+const synthN = 365 * 5;
+const synthStart = Date.UTC(2019, 0, 1);
+const synth = [];
+let px = 5000;
+for (let i = 0; i < synthN; i++) {
+  // 带噪声的上行趋势，确保择时有进出
+  px *= 1 + 0.0008 + 0.05 * Math.sin(i / 23) * Math.cos(i / 57) * 0.4;
+  const t = synthStart + i * 86400000;
+  const d = new Date(t).toISOString().slice(0, 10);
+  synth.push({ time: t, date: d, open: px * 0.99, high: px * 1.02, low: px * 0.98, close: px });
+}
+const synthRes = runBacktest(synth, { ...cfg, periodMin: 10, periodMax: 60, periodStep: 10 });
+const sr = synthRes.rolling.ma;
+const nonNull = sr.returns.filter((v) => v != null).length;
+if (nonNull === 0) throw new Error("合成 5 年数据 Rolling 仍全空，窗口逻辑有误");
+// 非空点应出现在序列后段（前 4 年窗口不足）
+const firstNonNull = sr.returns.findIndex((v) => v != null);
+if (firstNonNull < synthN * 0.7)
+  throw new Error(`Rolling 非空起点过早(${firstNonNull})，4 年窗口未生效`);
+// 末点应带 label 与 period
+if (sr.labels.at(-1) == null || sr.periods.at(-1) == null)
+  throw new Error("Rolling 末点缺少 label/period");
+console.log(`合成数据 ${synthN} 根，MA 非空点数=${nonNull}，首个非空 idx=${firstNonNull}`);
+console.log(`末点最优：收益率=${(sr.returns.at(-1) * 100).toFixed(1)}%  参数=${sr.labels.at(-1)}`);
+
 console.log("\n✓ 健全性检查通过");
