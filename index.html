@@ -100,8 +100,29 @@
       <h3>策略收益对比</h3>
       <div id="summaryTable"></div>
 
-      <h3>资金曲线对比</h3>
-      <div id="equityChart" class="chart"></div>
+      <details class="explain">
+        <summary>MA / EMA 计算方式与择时逻辑</summary>
+        <div class="explain-body">
+          <p><strong>简单移动平均 SMA(n)</strong>：最近 n 根收盘价的算术平均。</p>
+          <pre>SMA_t(n) = (C_t + C_{t-1} + … + C_{t-n+1}) / n</pre>
+          <p><strong>指数移动平均 EMA(n)</strong>：对近期价格加权更高，平滑系数 k = 2 / (n + 1)。首个值用前 n 根 SMA 作种子，其后递推：</p>
+          <pre>k = 2 / (n + 1)
+EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
+          <p><strong>择时信号</strong>：</p>
+          <ul>
+            <li><em>单均线</em>：收盘价 &gt; 均线 → 全仓持币；收盘价 &lt; 均线 → 全部卖出空仓。</li>
+            <li><em>双均线</em>：短周期均线 &gt; 长周期均线（金叉）→ 持币；短 &lt; 长（死叉）→ 空仓。</li>
+          </ul>
+          <p class="hint">C 为收盘价，下标 t 表示第 t 根 K 线。择时类策略用一次性初始资金满仓进出，不追加本金。</p>
+        </div>
+      </details>
+
+      <h3>择时策略资金曲线（同一初始资金，一次性投入）</h3>
+      <div id="timingChart" class="chart"></div>
+
+      <h3>定投策略：累计投入 vs 账户市值</h3>
+      <p class="hint" style="margin:-4px 0 8px">定投本金随时间累加，故单独成图；实线为账户市值，虚线为累计投入，两者差额即盈亏。</p>
+      <div id="dcaChart" class="chart"></div>
 
       <h3>MA / EMA 参数寻优排行（按最终资产）</h3>
       <div id="rankTable"></div>

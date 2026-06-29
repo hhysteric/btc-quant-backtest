@@ -83,6 +83,7 @@ function doubleMaSignals(shortArr, longArr) {
 // 周期性定投（不卖出）。periodType: 'week' | 'month'。
 function backtestDCA(candles, closes, amount, periodType) {
   const equity = new Array(candles.length);
+  const investedSeries = new Array(candles.length);
   const trades = [];
   let coin = 0;
   let spent = 0;
@@ -111,12 +112,13 @@ function backtestDCA(candles, closes, amount, periodType) {
       });
     }
     equity[i] = coin * closes[i];
+    investedSeries[i] = spent;
   }
   // 定投起点资金为 0，用累计投入做收益基准
   const stats = computeStats(candles, equity, buys, 1);
   stats.invested = spent;
   stats.totalReturn = spent > 0 ? (equity[equity.length - 1] - spent) / spent : 0;
-  return { equity, trades, stats };
+  return { equity, investedSeries, trades, stats };
 }
 
 // 指数增长估值（ahr999 的分母之一）。币龄自创世起算。
@@ -146,6 +148,7 @@ function computeAhr999(candles, closes) {
 // 默认按「日」定投（与指数日频一致），阈值越低买得越多（线性加权）。
 function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr) {
   const equity = new Array(candles.length);
+  const investedSeries = new Array(candles.length);
   const trades = [];
   let coin = 0;
   let spent = 0;
@@ -175,11 +178,12 @@ function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr) {
       }
     }
     equity[i] = coin * closes[i];
+    investedSeries[i] = spent;
   }
   const stats = computeStats(candles, equity, buys, 1);
   stats.invested = spent;
   stats.totalReturn = spent > 0 ? (equity[equity.length - 1] - spent) / spent : 0;
-  return { equity, trades, stats };
+  return { equity, investedSeries, trades, stats };
 }
 
 // 买入持有基准：首根全仓买入。

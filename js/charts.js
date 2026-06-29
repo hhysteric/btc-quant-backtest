@@ -1,6 +1,7 @@
 // 图表与表格渲染。
 
-let equityChartInstance = null;
+let timingChartInstance = null;
+let dcaChartInstance = null;
 let _lastResult = null; // 供明细弹窗按 key 取回策略数据
 
 const COLORS = {
@@ -26,22 +27,8 @@ function btc(x) {
   return x.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }
 
-function renderEquityChart(result) {
-  const el = document.getElementById("equityChart");
-  if (!equityChartInstance) equityChartInstance = echarts.init(el, "dark");
-
-  const dates = result.candles.map((c) => c.date);
-  const series = result.strategies.map((s) => ({
-    name: s.name,
-    type: "line",
-    showSymbol: false,
-    smooth: false,
-    lineStyle: { width: s.key === "buyhold" ? 1.5 : 2, type: s.key === "buyhold" ? "dashed" : "solid" },
-    itemStyle: { color: COLORS[s.key] },
-    data: s.equity.map((v) => (v == null ? null : Math.round(v))),
-  }));
-
-  equityChartInstance.setOption({
+function baseChartOption(dates, series) {
+  return {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : money(v)) },
     legend: { textStyle: { color: "#e6edf3" }, top: 0 },
@@ -54,7 +41,58 @@ function renderEquityChart(result) {
     },
     dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 18 }],
     series,
-  });
+  };
+}
+
+// 择时组：最优 MA/EMA 与买入持有，同一初始资金的资产曲线。
+function renderTimingChart(result) {
+  const el = document.getElementById("timingChart");
+  if (!timingChartInstance) timingChartInstance = echarts.init(el, "dark");
+
+  const dates = result.candles.map((c) => c.date);
+  const series = result.strategies
+    .filter((s) => s.kind === "timing")
+    .map((s) => ({
+      name: s.name,
+      type: "line",
+      showSymbol: false,
+      lineStyle: { width: s.key === "buyhold" ? 1.5 : 2, type: s.key === "buyhold" ? "dashed" : "solid" },
+      itemStyle: { color: COLORS[s.key] },
+      data: s.equity.map((v) => (v == null ? null : Math.round(v))),
+    }));
+
+  timingChartInstance.setOption(baseChartOption(dates, series));
+}
+
+// 定投组：每个策略画两条线——账户市值（实线）与累计投入（虚线）。
+function renderDcaChart(result) {
+  const el = document.getElementById("dcaChart");
+  if (!dcaChartInstance) dcaChartInstance = echarts.init(el, "dark");
+
+  const dates = result.candles.map((c) => c.date);
+  const series = [];
+  for (const s of result.strategies) {
+    if (s.kind !== "dca") continue;
+    const color = COLORS[s.key];
+    series.push({
+      name: `${s.name} 市值`,
+      type: "line",
+      showSymbol: false,
+      lineStyle: { width: 2, color },
+      itemStyle: { color },
+      data: s.equity.map((v) => (v == null ? null : Math.round(v))),
+    });
+    series.push({
+      name: `${s.name} 投入`,
+      type: "line",
+      showSymbol: false,
+      lineStyle: { width: 1.2, type: "dashed", color },
+      itemStyle: { color },
+      data: (s.investedSeries || []).map((v) => (v == null ? null : Math.round(v))),
+    });
+  }
+
+  dcaChartInstance.setOption(baseChartOption(dates, series));
 }
 
 function renderSummaryTable(result) {
@@ -164,10 +202,12 @@ function renderResults(result) {
   _lastResult = result;
   document.getElementById("resultsPanel").style.display = "block";
   renderSummaryTable(result);
-  renderEquityChart(result);
+  renderTimingChart(result);
+  renderDcaChart(result);
   renderRankTable(result);
 }
 
 window.addEventListener("resize", () => {
-  if (equityChartInstance) equityChartInstance.resize();
+  if (timingChartInstance) timingChartInstance.resize();
+  if (dcaChartInstance) dcaChartInstance.resize();
 });

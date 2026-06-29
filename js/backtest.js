@@ -66,14 +66,14 @@ function runBacktest(candles, cfg) {
 
   // 对比策略
   const weekly = backtestDCA(candles, closes, cfg.dcaAmount, "week");
-  out.strategies.push({ name: "周定投", key: "weekly", equity: weekly.equity, trades: weekly.trades, stats: weekly.stats, kind: "dca" });
+  out.strategies.push({ name: "周定投", key: "weekly", equity: weekly.equity, investedSeries: weekly.investedSeries, trades: weekly.trades, stats: weekly.stats, kind: "dca" });
 
   const monthly = backtestDCA(candles, closes, cfg.dcaAmount, "month");
-  out.strategies.push({ name: "月定投", key: "monthly", equity: monthly.equity, trades: monthly.trades, stats: monthly.stats, kind: "dca" });
+  out.strategies.push({ name: "月定投", key: "monthly", equity: monthly.equity, investedSeries: monthly.investedSeries, trades: monthly.trades, stats: monthly.stats, kind: "dca" });
 
   const ahrArr = computeAhr999(candles, closes);
   const ahr = backtestAhr999(candles, closes, cfg.dcaAmount, cfg.ahrThreshold, ahrArr);
-  out.strategies.push({ name: `ahr999 定投（<${cfg.ahrThreshold}）`, key: "ahr999", equity: ahr.equity, trades: ahr.trades, stats: ahr.stats, kind: "dca" });
+  out.strategies.push({ name: `ahr999 定投（<${cfg.ahrThreshold}）`, key: "ahr999", equity: ahr.equity, investedSeries: ahr.investedSeries, trades: ahr.trades, stats: ahr.stats, kind: "dca" });
 
   const bh = backtestBuyHold(candles, closes, cfg.initialCash);
   out.strategies.push({ name: "买入持有（基准）", key: "buyhold", equity: bh.equity, trades: bh.trades, stats: bh.stats, kind: "timing" });

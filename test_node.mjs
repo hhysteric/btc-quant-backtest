@@ -108,4 +108,19 @@ console.log("ahr999 首笔成交：", JSON.stringify({
   ahr: +ahrStrat.trades[0].ahr.toFixed(3), weight: +ahrStrat.trades[0].weight.toFixed(2),
 }));
 
+// 定投策略累计投入序列检查
+console.log("\n=== 定投累计投入序列检查 ===");
+for (const s of result.strategies.filter((x) => x.kind === "dca")) {
+  const inv = s.investedSeries;
+  if (!Array.isArray(inv) || inv.length !== candles.length)
+    throw new Error(`${s.name} investedSeries 长度异常`);
+  // 单调不减
+  for (let i = 1; i < inv.length; i++)
+    if (inv[i] < inv[i - 1]) throw new Error(`${s.name} 累计投入出现下降`);
+  // 末值应等于 stats.invested
+  if (Math.abs(inv[inv.length - 1] - s.stats.invested) > 1e-6)
+    throw new Error(`${s.name} 末期投入(${inv.at(-1)}) != stats.invested(${s.stats.invested})`);
+  console.log(`${s.name.padEnd(22)} 末期累计投入=$${Math.round(inv.at(-1))}  末期市值=$${Math.round(s.equity.at(-1))}`);
+}
+
 console.log("\n✓ 健全性检查通过");

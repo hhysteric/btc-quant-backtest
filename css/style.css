@@ -89,6 +89,34 @@ th { color: var(--muted); font-weight: 600; }
 .detail-link { color: var(--accent); text-decoration: none; }
 .detail-link:hover { text-decoration: underline; }
 
+.explain {
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0f1419;
+}
+.explain summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--accent);
+  user-select: none;
+}
+.explain summary:hover { filter: brightness(1.1); }
+.explain-body { padding: 0 16px 12px; font-size: 13px; color: var(--text); }
+.explain-body p { margin: 10px 0 4px; }
+.explain-body ul { margin: 4px 0; padding-left: 20px; }
+.explain-body pre {
+  background: #1a212b;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--green);
+  overflow-x: auto;
+  margin: 4px 0;
+}
+
 .modal-mask {
   position: fixed; inset: 0;
   background: rgba(0, 0, 0, 0.6);
