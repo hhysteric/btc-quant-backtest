@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BTC 行情量化回测</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>BTC 行情量化回测</h1>
+    <p class="sub">对比 MA / EMA 择时策略与周定投 / 月定投 / ahr999 定投的收益表现</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>1. 数据源</h2>
+      <div class="row">
+        <label>来源
+          <select id="source">
+            <option value="api">Binance API</option>
+            <option value="file">本地 Excel / CSV</option>
+          </select>
+        </label>
+
+        <div id="apiFields" class="inline">
+          <label>交易对
+            <input id="symbol" type="text" value="BTCUSDT" />
+          </label>
+          <label>周期
+            <select id="interval">
+              <option value="1d" selected>日线</option>
+              <option value="1w">周线</option>
+              <option value="1M">月线</option>
+            </select>
+          </label>
+          <label>开始日期
+            <input id="startDate" type="date" value="2021-01-01" />
+          </label>
+          <label>结束日期
+            <input id="endDate" type="date" />
+          </label>
+        </div>
+
+        <div id="fileFields" class="inline hidden">
+          <label>选择文件 (.xlsx / .csv)
+            <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+          </label>
+          <span class="hint">需含列：date, open, high, low, close（兼容中文表头）</span>
+        </div>
+      </div>
+      <button id="loadBtn">加载行情</button>
+      <span id="dataStatus" class="status"></span>
+    </section>
+
+    <section class="panel">
+      <h2>2. 回测参数</h2>
+      <div class="grid">
+        <label>初始资金 (USDT)
+          <input id="initialCash" type="number" value="10000" min="0" />
+        </label>
+        <label>定投金额 (USDT / 次)
+          <input id="dcaAmount" type="number" value="100" min="0" />
+        </label>
+        <label>均线类型
+          <select id="maType">
+            <option value="both" selected>MA 与 EMA 都跑</option>
+            <option value="ma">仅 MA</option>
+            <option value="ema">仅 EMA</option>
+          </select>
+        </label>
+        <label>均线模式
+          <select id="maMode">
+            <option value="single" selected>单均线（价穿均线）</option>
+            <option value="double">双均线（金叉/死叉）</option>
+          </select>
+        </label>
+        <label>周期遍历下限
+          <input id="periodMin" type="number" value="5" min="2" />
+        </label>
+        <label>周期遍历上限
+          <input id="periodMax" type="number" value="120" min="3" />
+        </label>
+        <label>周期步长
+          <input id="periodStep" type="number" value="5" min="1" />
+        </label>
+        <label>ahr999 定投阈值
+          <input id="ahrThreshold" type="number" value="1.2" step="0.05" min="0" />
+        </label>
+      </div>
+      <button id="runBtn" disabled>运行回测</button>
+      <span id="runStatus" class="status"></span>
+    </section>
+
+    <section class="panel" id="resultsPanel" style="display:none">
+      <h2>3. 结果</h2>
+
+      <h3>策略收益对比</h3>
+      <div id="summaryTable"></div>
+
+      <h3>资金曲线对比</h3>
+      <div id="equityChart" class="chart"></div>
+
+      <h3>MA / EMA 参数寻优排行（按最终资产）</h3>
+      <div id="rankTable"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>纯前端运行，数据与计算均在你的浏览器本地完成。仅供研究，不构成投资建议。</p>
+  </footer>
+
+  <script src="js/indicators.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/strategies.js"></script>
+  <script src="js/backtest.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
