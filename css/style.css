@@ -86,6 +86,41 @@ th { color: var(--muted); font-weight: 600; }
 .neg { color: var(--red); }
 .best { background: rgba(247, 147, 26, 0.12); }
 
+.detail-link { color: var(--accent); text-decoration: none; }
+.detail-link:hover { text-decoration: underline; }
+
+.modal-mask {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 24px;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: min(960px, 100%);
+  max-height: 85vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  font-size: 15px; font-weight: 600;
+}
+.modal-close {
+  background: transparent; color: var(--muted);
+  border: none; font-size: 18px; padding: 4px 8px; cursor: pointer;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body { overflow: auto; padding: 8px 20px 20px; }
+.modal-body table { font-size: 12px; }
+.modal-body th {
+  position: sticky; top: 0;
+  background: var(--panel);
+}
+
 footer {
   text-align: center;
   padding: 24px;

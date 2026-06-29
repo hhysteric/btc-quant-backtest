@@ -35,24 +35,37 @@ function computeStats(candles, equity, buyCount, intervalDays) {
 // mode: 'single' 价格 vs 均线；'double' 短均线 vs 长均线。
 function backtestTiming(candles, closes, initialCash, signals) {
   const equity = new Array(candles.length);
+  const trades = [];
   let cash = initialCash;
   let coin = 0;
-  let trades = 0;
+  let buyCount = 0;
 
   for (let i = 0; i < candles.length; i++) {
     const price = closes[i];
     const sig = signals[i];
     if (sig === true && cash > 0) {
-      coin = cash / price;
+      const qty = cash / price;
+      const amount = cash;
+      coin = qty;
       cash = 0;
-      trades++;
+      buyCount++;
+      trades.push({
+        date: candles[i].date, side: "buy", price, qty, amount,
+        coinAfter: coin, cashAfter: cash, equityAfter: cash + coin * price,
+      });
     } else if (sig === false && coin > 0) {
-      cash = coin * price;
+      const qty = coin;
+      const amount = coin * price;
+      cash = amount;
       coin = 0;
+      trades.push({
+        date: candles[i].date, side: "sell", price, qty, amount,
+        coinAfter: coin, cashAfter: cash, equityAfter: cash + coin * price,
+      });
     }
     equity[i] = cash + coin * price;
   }
-  return { equity, stats: computeStats(candles, equity, trades, 1) };
+  return { equity, trades, stats: computeStats(candles, equity, buyCount, 1) };
 }
 
 // 由均线数组生成持仓信号（单均线：收盘价在均线上方则持有）。
@@ -70,6 +83,7 @@ function doubleMaSignals(shortArr, longArr) {
 // 周期性定投（不卖出）。periodType: 'week' | 'month'。
 function backtestDCA(candles, closes, amount, periodType) {
   const equity = new Array(candles.length);
+  const trades = [];
   let coin = 0;
   let spent = 0;
   let buys = 0;
@@ -85,10 +99,16 @@ function backtestDCA(candles, closes, amount, periodType) {
       key = d.getUTCFullYear() * 12 + d.getUTCMonth();
     }
     if (key !== lastKey) {
-      coin += amount / closes[i];
+      const price = closes[i];
+      const qty = amount / price;
+      coin += qty;
       spent += amount;
       buys++;
       lastKey = key;
+      trades.push({
+        date: candles[i].date, side: "buy", price, qty, amount,
+        coinAfter: coin, cashAfter: null, equityAfter: coin * price,
+      });
     }
     equity[i] = coin * closes[i];
   }
@@ -96,7 +116,7 @@ function backtestDCA(candles, closes, amount, periodType) {
   const stats = computeStats(candles, equity, buys, 1);
   stats.invested = spent;
   stats.totalReturn = spent > 0 ? (equity[equity.length - 1] - spent) / spent : 0;
-  return { equity, stats };
+  return { equity, trades, stats };
 }
 
 // 指数增长估值（ahr999 的分母之一）。币龄自创世起算。
@@ -126,6 +146,7 @@ function computeAhr999(candles, closes) {
 // 默认按「日」定投（与指数日频一致），阈值越低买得越多（线性加权）。
 function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr) {
   const equity = new Array(candles.length);
+  const trades = [];
   let coin = 0;
   let spent = 0;
   let buys = 0;
@@ -141,9 +162,16 @@ function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr) {
         // 加权：ahr 越低越多，封顶 3 倍
         const weight = Math.min(3, Math.max(1, threshold / Math.max(ahr, 0.1)));
         const amt = baseAmount * weight;
-        coin += amt / closes[i];
+        const price = closes[i];
+        const qty = amt / price;
+        coin += qty;
         spent += amt;
         buys++;
+        trades.push({
+          date: candles[i].date, side: "buy", price, qty, amount: amt,
+          coinAfter: coin, cashAfter: null, equityAfter: coin * price,
+          ahr, weight,
+        });
       }
     }
     equity[i] = coin * closes[i];
@@ -151,12 +179,16 @@ function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr) {
   const stats = computeStats(candles, equity, buys, 1);
   stats.invested = spent;
   stats.totalReturn = spent > 0 ? (equity[equity.length - 1] - spent) / spent : 0;
-  return { equity, stats };
+  return { equity, trades, stats };
 }
 
 // 买入持有基准：首根全仓买入。
 function backtestBuyHold(candles, closes, initialCash) {
   const coin = initialCash / closes[0];
   const equity = closes.map((c) => coin * c);
-  return { equity, stats: computeStats(candles, equity, 1, 1) };
+  const trades = [{
+    date: candles[0].date, side: "buy", price: closes[0], qty: coin, amount: initialCash,
+    coinAfter: coin, cashAfter: 0, equityAfter: initialCash,
+  }];
+  return { equity, trades, stats: computeStats(candles, equity, 1, 1) };
 }

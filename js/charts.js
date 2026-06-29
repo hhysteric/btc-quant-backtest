@@ -1,6 +1,7 @@
 // 图表与表格渲染。
 
 let equityChartInstance = null;
+let _lastResult = null; // 供明细弹窗按 key 取回策略数据
 
 const COLORS = {
   best_ma: "#f7931a",
@@ -17,6 +18,12 @@ function pct(x) {
 }
 function money(x) {
   return "$" + x.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+function money2(x) {
+  return "$" + x.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+function btc(x) {
+  return x.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }
 
 function renderEquityChart(result) {
@@ -52,12 +59,16 @@ function renderEquityChart(result) {
 
 function renderSummaryTable(result) {
   let html = `<table><thead><tr>
-    <th>策略</th><th>最终资产</th><th>总收益率</th><th>年化</th><th>最大回撤</th><th>买入次数</th><th>累计投入</th>
+    <th>策略</th><th>最终资产</th><th>总收益率</th><th>年化</th><th>最大回撤</th><th>买入次数</th><th>累计投入</th><th>明细</th>
     </tr></thead><tbody>`;
 
   for (const s of result.strategies) {
     const st = s.stats;
     const invested = st.invested != null ? money(st.invested) : "—（全仓）";
+    const n = s.trades ? s.trades.length : 0;
+    const detail = n > 0
+      ? `<a href="#" class="detail-link" data-key="${s.key}">查看 (${n})</a>`
+      : "—";
     html += `<tr>
       <td>${s.name}</td>
       <td>${money(st.finalEquity)}</td>
@@ -66,10 +77,65 @@ function renderSummaryTable(result) {
       <td><span class="neg">-${(st.maxDrawdown * 100).toFixed(1)}%</span></td>
       <td>${st.buyCount}</td>
       <td>${invested}</td>
+      <td>${detail}</td>
     </tr>`;
   }
   html += "</tbody></table>";
-  document.getElementById("summaryTable").innerHTML = html;
+  const container = document.getElementById("summaryTable");
+  container.innerHTML = html;
+  container.querySelectorAll(".detail-link").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      openTradesModal(a.getAttribute("data-key"));
+    });
+  });
+}
+
+// 打开某策略的成交明细弹窗。
+function openTradesModal(key) {
+  const s = _lastResult && _lastResult.strategies.find((x) => x.key === key);
+  if (!s || !s.trades) return;
+  const isAhr = key === "ahr999";
+
+  let head = `<th>#</th><th>日期</th><th>方向</th><th>价格</th><th>数量(BTC)</th><th>金额(USDT)</th>`;
+  if (isAhr) head += `<th>ahr999</th><th>加权</th>`;
+  head += `<th>持仓(BTC)</th><th>现金(USDT)</th><th>总资产</th>`;
+
+  let rows = "";
+  s.trades.forEach((t, i) => {
+    const sideCls = t.side === "buy" ? "pos" : "neg";
+    const sideTxt = t.side === "buy" ? "买入" : "卖出";
+    let r = `<td>${i + 1}</td><td>${t.date}</td>` +
+      `<td><span class="${sideCls}">${sideTxt}</span></td>` +
+      `<td>${money2(t.price)}</td><td>${btc(t.qty)}</td><td>${money2(t.amount)}</td>`;
+    if (isAhr) r += `<td>${t.ahr != null ? t.ahr.toFixed(3) : "—"}</td><td>${t.weight != null ? t.weight.toFixed(2) + "x" : "—"}</td>`;
+    r += `<td>${btc(t.coinAfter)}</td>` +
+      `<td>${t.cashAfter != null ? money2(t.cashAfter) : "—"}</td>` +
+      `<td>${money2(t.equityAfter)}</td>`;
+    rows += `<tr>${r}</tr>`;
+  });
+
+  const html = `
+    <div class="modal-mask" id="tradesMask">
+      <div class="modal">
+        <div class="modal-head">
+          <span>${s.name} — 成交明细（共 ${s.trades.length} 笔）</span>
+          <button class="modal-close" id="tradesClose">✕</button>
+        </div>
+        <div class="modal-body">
+          <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
+        </div>
+      </div>
+    </div>`;
+
+  const wrap = document.createElement("div");
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+
+  const mask = document.getElementById("tradesMask");
+  const close = () => mask.remove();
+  document.getElementById("tradesClose").addEventListener("click", close);
+  mask.addEventListener("click", (e) => { if (e.target === mask) close(); });
 }
 
 function renderRankTable(result) {
@@ -95,6 +161,7 @@ function renderRankTable(result) {
 }
 
 function renderResults(result) {
+  _lastResult = result;
   document.getElementById("resultsPanel").style.display = "block";
   renderSummaryTable(result);
   renderEquityChart(result);
