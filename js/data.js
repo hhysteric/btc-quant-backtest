@@ -1,7 +1,12 @@
 // 数据获取：Binance API 分页拉取 + Excel/CSV 解析。
 // 统一输出：[{ time: ms, date: 'YYYY-MM-DD', open, high, low, close }]，按时间升序。
 
-const BINANCE_BASE = "https://api.binance.com/api/v3/klines";
+// 主站在部分地区/网络不可达，data-api.binance.vision 为官方公开数据镜像，接口格式一致。
+const BINANCE_HOSTS = [
+  "https://api.binance.com",
+  "https://data-api.binance.vision",
+  "https://api1.binance.com",
+];
 
 function toDateStr(ms) {
   const d = new Date(ms);
@@ -11,6 +16,41 @@ function toDateStr(ms) {
   return `${y}-${m}-${day}`;
 }
 
+// 带超时的 fetch。
+async function fetchWithTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 依次尝试各 Binance 主机，返回首个成功响应的 rows；记录可用主机供后续分页复用。
+let _workingHost = null;
+async function fetchKlinePage(path) {
+  const hosts = _workingHost ? [_workingHost, ...BINANCE_HOSTS.filter((h) => h !== _workingHost)] : BINANCE_HOSTS;
+  let lastErr = null;
+  for (const host of hosts) {
+    try {
+      const resp = await fetchWithTimeout(host + path, 12000);
+      if (!resp.ok) {
+        lastErr = new Error(`${host} 返回 ${resp.status}`);
+        continue;
+      }
+      _workingHost = host;
+      return await resp.json();
+    } catch (e) {
+      lastErr = new Error(`${host} 连接失败`);
+    }
+  }
+  throw new Error(
+    `所有 Binance 数据源都无法访问（${lastErr ? lastErr.message : "未知"}）。` +
+    `可能是网络限制，请改用本地 Excel/CSV 上传。`
+  );
+}
+
 // 从 Binance 拉取 K 线，自动分页（单次上限 1000 条）。
 async function fetchBinanceKlines(symbol, interval, startMs, endMs) {
   const candles = [];
@@ -18,13 +58,8 @@ async function fetchBinanceKlines(symbol, interval, startMs, endMs) {
   const LIMIT = 1000;
 
   while (cursor < endMs) {
-    const url = `${BINANCE_BASE}?symbol=${encodeURIComponent(symbol)}&interval=${interval}&startTime=${cursor}&endTime=${endMs}&limit=${LIMIT}`;
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Binance 请求失败 (${resp.status})：${text.slice(0, 200)}`);
-    }
-    const rows = await resp.json();
+    const path = `/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&startTime=${cursor}&endTime=${endMs}&limit=${LIMIT}`;
+    const rows = await fetchKlinePage(path);
     if (!Array.isArray(rows) || rows.length === 0) break;
 
     for (const r of rows) {

@@ -39,7 +39,10 @@ $("loadBtn").addEventListener("click", async () => {
       candles = await parseFile(file);
     }
     if (!candles || candles.length < 10) throw new Error("数据量过少，无法回测");
-    setDataStatus(`已加载 ${candles.length} 根 K 线（${candles[0].date} ~ ${candles[candles.length - 1].date}）`, false);
+    const srcNote = $("source").value === "api" && typeof _workingHost === "string"
+      ? `，数据源 ${_workingHost.replace("https://", "")}`
+      : "";
+    setDataStatus(`已加载 ${candles.length} 根 K 线（${candles[0].date} ~ ${candles[candles.length - 1].date}）${srcNote}`, false);
     $("runBtn").disabled = false;
   } catch (err) {
     candles = null;
