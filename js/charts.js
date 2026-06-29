@@ -321,8 +321,9 @@ function renderTradeChart(strategy) {
 
 let rollingChartInstance = null;
 
-// Rolling 4Y：每个时间点窗口内最优策略收益率，MA / EMA 各一条线。
-// 悬停 tooltip 显示对应最优参数（label）。
+// Rolling 4Y：纵轴为「窗口内最优均线周期」，展示最优参数随时间的变动。
+// 单均线模式每个类型一条线（周期值）；双均线模式画短/长两条（虚线为长）。
+// tooltip 额外显示该点对应收益率。
 function renderRollingChart(result) {
   rollingChartInstance = ensureChart("rollingChart", rollingChartInstance);
   if (!rollingChartInstance) return;
@@ -331,18 +332,47 @@ function renderRollingChart(result) {
   if (!r) return;
   const dates = r.dates;
   const series = [];
-  const labelMap = {}; // key -> 每根的最优参数标签，供 tooltip 取用
+  const labelMap = {}; // type -> 每根的最优参数标签
+  const retMap = {};   // type -> 每根的最优收益率
+
   for (const type of ["ma", "ema"]) {
     if (!r[type]) continue;
-    labelMap[type] = r[type].labels;
-    series.push({
-      name: type === "ma" ? "最优 MA 收益率" : "最优 EMA 收益率",
-      type: "line",
-      showSymbol: false,
-      lineStyle: { width: 2, color: type === "ma" ? COLORS.best_ma : COLORS.best_ema },
-      itemStyle: { color: type === "ma" ? COLORS.best_ma : COLORS.best_ema },
-      data: r[type].returns.map((v) => (v == null ? null : +(v * 100).toFixed(1))),
-    });
+    const tr = r[type];
+    const TYPE = type.toUpperCase();
+    const color = type === "ma" ? COLORS.best_ma : COLORS.best_ema;
+    labelMap[type] = tr.labels;
+    retMap[type] = tr.returns;
+
+    if (tr.single) {
+      series.push({
+        name: `最优 ${TYPE} 周期`,
+        type: "line",
+        step: "end",
+        showSymbol: false,
+        lineStyle: { width: 2, color },
+        itemStyle: { color },
+        data: tr.periods.map((v) => (v == null ? null : v)),
+      });
+    } else {
+      series.push({
+        name: `最优 ${TYPE} 短周期`,
+        type: "line",
+        step: "end",
+        showSymbol: false,
+        lineStyle: { width: 2, color },
+        itemStyle: { color },
+        data: tr.shortPeriods.map((v) => (v == null ? null : v)),
+      });
+      series.push({
+        name: `最优 ${TYPE} 长周期`,
+        type: "line",
+        step: "end",
+        showSymbol: false,
+        lineStyle: { width: 1.5, type: "dashed", color },
+        itemStyle: { color },
+        data: tr.longPeriods.map((v) => (v == null ? null : v)),
+      });
+    }
   }
 
   const hasData = series.some((s) => s.data.some((v) => v != null));
@@ -359,11 +389,17 @@ function renderRollingChart(result) {
         if (!params.length) return "";
         const idx = params[0].dataIndex;
         let html = `${params[0].axisValue}`;
+        // 同一 type 的短/长两条线只展示一次 label + 收益率
+        const seen = new Set();
         for (const p of params) {
           const type = p.seriesName.includes("EMA") ? "ema" : "ma";
+          if (seen.has(type)) continue;
+          seen.add(type);
           const lbl = labelMap[type] && labelMap[type][idx];
-          const val = p.value == null ? "-" : `+${p.value}%`;
-          html += `<br/>${p.marker}${p.seriesName}：${val}${lbl ? `（${lbl}）` : ""}`;
+          if (lbl == null) continue;
+          const ret = retMap[type] && retMap[type][idx];
+          const retTxt = ret == null ? "" : `，窗口收益 +${(ret * 100).toFixed(0)}%`;
+          html += `<br/>${p.marker}${type.toUpperCase()}：最优 ${lbl}${retTxt}`;
         }
         return html;
       },
@@ -373,9 +409,9 @@ function renderRollingChart(result) {
     xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" } },
     yAxis: {
       type: "value",
-      name: "收益率",
+      name: "最优周期",
       nameTextStyle: { color: "#8b98a5" },
-      axisLabel: { color: "#8b98a5", formatter: (v) => v + "%" },
+      axisLabel: { color: "#8b98a5" },
       splitLine: { lineStyle: { color: "#2a3441" } },
     },
     dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 18 }],

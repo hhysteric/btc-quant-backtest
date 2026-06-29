@@ -176,6 +176,20 @@ if (firstNonNull < synthN * 0.7)
 if (sr.labels.at(-1) == null || sr.periods.at(-1) == null)
   throw new Error("Rolling 末点缺少 label/period");
 console.log(`合成数据 ${synthN} 根，MA 非空点数=${nonNull}，首个非空 idx=${firstNonNull}`);
-console.log(`末点最优：收益率=${(sr.returns.at(-1) * 100).toFixed(1)}%  参数=${sr.labels.at(-1)}`);
+console.log(`末点最优：周期=${sr.periods.at(-1)}  参数=${sr.labels.at(-1)}  收益率=${(sr.returns.at(-1) * 100).toFixed(1)}%`);
+if (sr.single !== true) throw new Error("单均线模式 rolling.single 应为 true");
+if (sr.shortPeriods.at(-1) != null) throw new Error("单均线模式不应有 shortPeriods 值");
+
+// 双均线模式：应填 shortPeriods/longPeriods，periods 留空
+console.log("\n=== Rolling 4Y 双均线模式验证 ===");
+const synthRes2 = runBacktest(synth, { ...cfg, maMode: "double", periodMin: 10, periodMax: 60, periodStep: 10 });
+const sr2 = synthRes2.rolling.ma;
+if (sr2.single !== false) throw new Error("双均线模式 rolling.single 应为 false");
+if (sr2.shortPeriods.at(-1) == null || sr2.longPeriods.at(-1) == null)
+  throw new Error("双均线模式末点缺少 short/long 周期");
+if (sr2.shortPeriods.at(-1) >= sr2.longPeriods.at(-1))
+  throw new Error("短周期应小于长周期");
+if (sr2.periods.at(-1) != null) throw new Error("双均线模式 periods 应留空");
+console.log(`双均线末点：短=${sr2.shortPeriods.at(-1)} 长=${sr2.longPeriods.at(-1)} 参数=${sr2.labels.at(-1)}`);
 
 console.log("\n✓ 健全性检查通过");

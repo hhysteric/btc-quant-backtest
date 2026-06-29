@@ -72,7 +72,10 @@ function rollingBestForType(candles, closes, type, cfg) {
 
   const winMs = ROLLING_WINDOW_YEARS * 365 * DAY_MS;
   const returns = new Array(n).fill(null);
+  // 单均线：bestPeriods 存单值；双均线：shortPeriods/longPeriods 存短长两值。
   const bestPeriods = new Array(n).fill(null);
+  const shortPeriods = new Array(n).fill(null);
+  const longPeriods = new Array(n).fill(null);
   const labels = new Array(n).fill(null);
 
   let lo = 0;
@@ -82,7 +85,7 @@ function rollingBestForType(candles, closes, type, cfg) {
     // 窗口太短（不足 4 年）则跳过
     if (candles[i].time - candles[lo].time < winMs * 0.95) continue;
 
-    let bestRet = -Infinity, bestLabel = null, bestP = null;
+    let bestRet = -Infinity, bestLabel = null, bestP = null, bestShort = null, bestLong = null;
     if (single) {
       for (const p of periods) {
         const r = windowTimingReturn(closes, maArrs[p], lo, i);
@@ -93,7 +96,7 @@ function rollingBestForType(candles, closes, type, cfg) {
         for (let b = a + 1; b < periods.length; b++) {
           const r = windowTimingReturnDouble(closes, maArrs[periods[a]], maArrs[periods[b]], lo, i);
           if (r != null && r > bestRet) {
-            bestRet = r; bestP = periods[a];
+            bestRet = r; bestShort = periods[a]; bestLong = periods[b];
             bestLabel = `${type.toUpperCase()}${periods[a]}/${periods[b]}`;
           }
         }
@@ -102,10 +105,12 @@ function rollingBestForType(candles, closes, type, cfg) {
     if (bestRet > -Infinity) {
       returns[i] = bestRet;
       bestPeriods[i] = bestP;
+      shortPeriods[i] = bestShort;
+      longPeriods[i] = bestLong;
       labels[i] = bestLabel;
     }
   }
-  return { returns, periods: bestPeriods, labels };
+  return { single, returns, periods: bestPeriods, shortPeriods, longPeriods, labels };
 }
 
 // 在 [lo, hi] 窗口内、用单均线信号跑一次满仓择时，返回总收益率。
