@@ -181,6 +181,36 @@ function zoomConfig(yIndex = 0) {
   ];
 }
 
+// 读取实例当前的缩放窗口（各 dataZoom 的 start/end 百分比），用于在重绘后恢复，
+// 避免切换对数刻度 / 连赢连亏背景等开关时把已缩放的视图重置回全区间。
+// 返回与 dataZoom 数组等长的 [{start,end}|null,...]；无实例或无历史缩放时返回 null。
+function captureZoom(instance) {
+  if (!instance) return null;
+  const opt = instance.getOption();
+  if (!opt || !Array.isArray(opt.dataZoom)) return null;
+  return opt.dataZoom.map((dz) =>
+    dz && typeof dz.start === "number" && typeof dz.end === "number"
+      ? { start: dz.start, end: dz.end }
+      : null
+  );
+}
+
+// notMerge 重绘并按需保留用户当前缩放窗口：仅当本次重绘的数据与上次相同（即切换
+// 对数刻度 / 连赢连亏背景等开关引发的重绘）才记录并还原各 dataZoom 的 start/end；
+// 换了新数据（重新运行回测 / 分析）则不还原，恢复全区间，符合「看新结果先看全貌」。
+// keyObj 用于判定是否同一份数据，传入当次渲染所依据的结果对象即可。
+function setOptionKeepZoom(instance, option, keyObj) {
+  const sameData = keyObj !== undefined && instance.__lastDataKey === keyObj;
+  const saved = sameData ? captureZoom(instance) : null;
+  instance.setOption(option, true);
+  if (keyObj !== undefined) instance.__lastDataKey = keyObj;
+  if (saved) {
+    saved.forEach((s, i) => {
+      if (s) instance.dispatchAction({ type: "dataZoom", dataZoomIndex: i, start: s.start, end: s.end });
+    });
+  }
+}
+
 // 资产 Y 轴：随 log 在线性/对数间切换。对数轴下 0 值无意义，min 设 1。
 function equityYAxis(name, log) {
   return {
@@ -277,7 +307,7 @@ function renderTimingChartTo(result, elId, instance, log) {
     data: result.candles.map((c) => c.close),
   });
 
-  instance.setOption(timingChartOption(dates, series, log), true);
+  setOptionKeepZoom(instance, timingChartOption(dates, series, log), result);
   return instance;
 }
 
@@ -309,7 +339,7 @@ function renderDcaChart(result) {
     });
   }
 
-  dcaChartInstance.setOption(singleAxisOption(dates, series, _logScale), true);
+  setOptionKeepZoom(dcaChartInstance, singleAxisOption(dates, series, _logScale), result);
 }
 
 function renderSummaryTable(result) {
@@ -447,7 +477,7 @@ function renderTradeChart(strategy) {
   // 买卖点标注（挂在 K 线 series 上）：买入朝上在下方、卖出朝下在上方，一上一下错开。
   series[0].markPoint = buildTradeMarkPoint(strategy.trades, dates);
 
-  tradeChartInstance.setOption({
+  setOptionKeepZoom(tradeChartInstance, {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
     legend: { textStyle: { color: THEME.legend }, top: 0 },
@@ -461,7 +491,7 @@ function renderTradeChart(strategy) {
     },
     dataZoom: zoomConfig(0),
     series,
-  }, true);
+  }, strategy);
   setTimeout(() => tradeChartInstance && tradeChartInstance.resize(), 50);
 }
 
@@ -543,7 +573,7 @@ function renderRollingChartTo(result, elId, instance, rollingLog) {
   });
 
   const hasData = hasPeriodData;
-  instance.setOption({
+  setOptionKeepZoom(instance, {
     backgroundColor: "transparent",
     title: hasData ? undefined : {
       text: "数据不足 4 年，无法计算 Rolling 4Y",
@@ -597,7 +627,7 @@ function renderRollingChartTo(result, elId, instance, rollingLog) {
     ],
     dataZoom: zoomConfig(0),
     series,
-  }, true);
+  }, result);
   return instance;
 }
 
@@ -898,7 +928,7 @@ function renderRoundsChart({ elId, instance, result, log, bands, bandsSingle }) 
     }
   }
 
-  instance.setOption({
+  setOptionKeepZoom(instance, {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
     legend: { textStyle: { color: THEME.legend }, top: 0 },
@@ -922,7 +952,7 @@ function renderRoundsChart({ elId, instance, result, log, bands, bandsSingle }) 
     ],
     dataZoom: zoomConfig(0),
     series,
-  }, true);
+  }, result);
   setTimeout(() => instance && instance.resize(), 50);
   return instance;
 }
