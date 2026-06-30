@@ -83,6 +83,40 @@ async function fetchBinanceKlines(symbol, interval, startMs, endMs) {
   return candles;
 }
 
+// 加载内置 BTC 历史日线（data/btc-daily.json），可选用 API 补到今天。
+// 返回统一 candle 数组。fillLatest=true 时尝试用 Binance 增量补最新缺口。
+let _builtinCache = null;
+async function loadBuiltinBtc(fillLatest = true) {
+  if (!_builtinCache) {
+    const resp = await fetch("data/btc-daily.json", { cache: "no-cache" });
+    if (!resp.ok) throw new Error(`内置历史数据加载失败（${resp.status}）`);
+    const payload = await resp.json();
+    _builtinCache = payload.rows.map((r) => {
+      const t = Date.parse(r[0] + "T00:00:00.000Z");
+      return { time: t, date: r[0], open: r[1], high: r[2], low: r[3], close: r[4] };
+    });
+  }
+  const candles = _builtinCache.slice();
+  if (!fillLatest) return candles;
+
+  // 内置数据最后一天的次日 0 点起，补到今天
+  const lastTime = candles[candles.length - 1].time;
+  const startMs = lastTime + 86400000;
+  const endMs = Date.now();
+  if (startMs >= endMs) return candles;
+  try {
+    const extra = await fetchBinanceKlines("BTCUSDT", "1d", startMs, endMs);
+    // 去重拼接（按 date 防重叠）
+    const have = new Set(candles.map((c) => c.date));
+    for (const c of extra) if (!have.has(c.date)) candles.push(c);
+    candles.sort((a, b) => a.time - b.time);
+  } catch (e) {
+    // API 不可达时静默退回内置数据（不阻断回测）
+    console.warn("补最新行情失败，仅用内置历史：", e.message);
+  }
+  return candles;
+}
+
 // 中英文表头映射。
 const HEADER_MAP = {
   date: "date", time: "date", 日期: "date", 时间: "date",

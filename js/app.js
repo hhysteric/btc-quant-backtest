@@ -4,15 +4,37 @@ let candles = null;
 
 const $ = (id) => document.getElementById(id);
 
+// 主题：深/浅色切换，localStorage 记住选择，默认深色。
+function applyTheme(theme) {
+  const isLight = theme === "light";
+  document.documentElement.setAttribute("data-theme", isLight ? "light" : "dark");
+  $("themeToggle").textContent = isLight ? "☀️ 浅色" : "🌙 深色";
+  if (typeof refreshThemeColors === "function") refreshThemeColors();
+}
+const _savedTheme = localStorage.getItem("theme") || "dark";
+applyTheme(_savedTheme);
+$("themeToggle").addEventListener("click", () => {
+  const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+  localStorage.setItem("theme", next);
+  applyTheme(next);
+  if (typeof rerenderAllCharts === "function") rerenderAllCharts();
+});
+
 // 默认结束日期为今天
 $("endDate").value = new Date().toISOString().slice(0, 10);
 
-// 数据源切换
-$("source").addEventListener("change", () => {
-  const isApi = $("source").value === "api";
-  $("apiFields").classList.toggle("hidden", !isApi);
-  $("fileFields").classList.toggle("hidden", isApi);
-});
+// 数据源切换：内置/API 显示 API 字段（内置也用日期范围裁剪），文件显示上传字段
+function syncSourceFields() {
+  const v = $("source").value;
+  $("apiFields").classList.toggle("hidden", v === "file");
+  $("fileFields").classList.toggle("hidden", v !== "file");
+  // 内置数据不需要交易对/周期，仅用日期范围裁剪；隐去交易对与周期
+  const isBuiltin = v === "builtin";
+  $("symbol").closest("label").classList.toggle("hidden", isBuiltin);
+  $("interval").closest("label").classList.toggle("hidden", isBuiltin);
+}
+$("source").addEventListener("change", syncSourceFields);
+syncSourceFields();
 
 // 对数刻度开关
 $("logScale").addEventListener("change", () => setLogScale($("logScale").checked));
@@ -29,7 +51,15 @@ $("loadBtn").addEventListener("click", async () => {
   $("runBtn").disabled = true;
   setDataStatus("加载中…", false);
   try {
-    if ($("source").value === "api") {
+    if ($("source").value === "builtin") {
+      const all = await loadBuiltinBtc(true);
+      // 用日期范围裁剪（留空则用全部）
+      const startMs = Date.parse($("startDate").value);
+      const endMs = Date.parse($("endDate").value) + 86400000;
+      candles = all.filter((c) =>
+        (isNaN(startMs) || c.time >= startMs) && (isNaN(endMs) || c.time < endMs)
+      );
+    } else if ($("source").value === "api") {
       const symbol = $("symbol").value.trim().toUpperCase();
       const interval = $("interval").value;
       const startMs = Date.parse($("startDate").value);
@@ -42,9 +72,11 @@ $("loadBtn").addEventListener("click", async () => {
       candles = await parseFile(file);
     }
     if (!candles || candles.length < 10) throw new Error("数据量过少，无法回测");
-    const srcNote = $("source").value === "api" && typeof _workingHost === "string"
-      ? `，数据源 ${_workingHost.replace("https://", "")}`
-      : "";
+    const srcNote = $("source").value === "builtin"
+      ? "，内置历史 + API 补最新"
+      : ($("source").value === "api" && typeof _workingHost === "string"
+        ? `，数据源 ${_workingHost.replace("https://", "")}`
+        : "");
     setDataStatus(`已加载 ${candles.length} 根 K 线（${candles[0].date} ~ ${candles[candles.length - 1].date}）${srcNote}`, false);
     $("runBtn").disabled = false;
   } catch (err) {

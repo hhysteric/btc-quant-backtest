@@ -7,6 +7,19 @@
   --accent: #f7931a;
   --green: #26a69a;
   --red: #ef5350;
+  --input-bg: #0f1419;
+}
+
+:root[data-theme="light"] {
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --border: #d8dee6;
+  --text: #1a212b;
+  --muted: #5b6b7a;
+  --accent: #e8830a;
+  --green: #1a8f84;
+  --red: #d83a37;
+  --input-bg: #ffffff;
 }
 
 * { box-sizing: border-box; }
@@ -22,7 +35,21 @@ body {
 header {
   padding: 24px 32px 8px;
   border-bottom: 1px solid var(--border);
+  position: relative;
 }
+.theme-toggle {
+  position: absolute;
+  top: 20px; right: 32px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--accent); }
 header h1 { margin: 0; font-size: 24px; color: var(--accent); }
 header .sub { margin: 4px 0 16px; color: var(--muted); font-size: 14px; }
 
@@ -49,7 +76,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px 32px; }
 
 label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
 input, select {
-  background: #0f1419;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   color: var(--text);
   padding: 8px 10px;
@@ -98,7 +125,7 @@ th { color: var(--muted); font-weight: 600; }
   margin: 16px 0;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #0f1419;
+  background: var(--input-bg);
 }
 .explain summary {
   cursor: pointer;
@@ -112,7 +139,7 @@ th { color: var(--muted); font-weight: 600; }
 .explain-body p { margin: 10px 0 4px; }
 .explain-body ul { margin: 4px 0; padding-left: 20px; }
 .explain-body pre {
-  background: #1a212b;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;

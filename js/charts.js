@@ -14,6 +14,26 @@ const COLORS = {
   btc: "#5c6b7a",
 };
 
+// 主题相关颜色：从 CSS 变量读取，随深/浅色切换。图表配色据此刷新。
+const THEME = { axis: "#8b98a5", grid: "#2a3441", legend: "#e6edf3" };
+function refreshThemeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const get = (v, fallback) => (cs.getPropertyValue(v).trim() || fallback);
+  THEME.axis = get("--muted", "#8b98a5");
+  THEME.grid = get("--border", "#2a3441");
+  THEME.legend = get("--text", "#e6edf3");
+}
+
+// 切换主题后重绘所有图表，使坐标轴/网格/图例配色跟随。
+function rerenderAllCharts() {
+  refreshThemeColors();
+  if (_lastResult) {
+    renderTimingChart(_lastResult);
+    renderDcaChart(_lastResult);
+    renderRollingChart(_lastResult);
+  }
+}
+
 // 资产 Y 轴是否使用对数刻度（由页面开关控制）。
 let _logScale = false;
 function setLogScale(on) {
@@ -38,15 +58,30 @@ function btc(x) {
   return x.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }
 
+// 统一的缩放配置：底部横向（时间）滑块 + 左侧纵向（数值）滑块，
+// 并支持鼠标滚轮在横纵两个方向缩放、拖拽平移，便于细看曲线。
+// yIndex 指定纵向缩放作用的 Y 轴序号（默认 0，即资产/数值轴）。
+function zoomConfig(yIndex = 0) {
+  return [
+    // 滚轮缩放：横向 + 纵向（filterMode none 避免缩放时数据被裁掉）
+    { type: "inside", xAxisIndex: 0, filterMode: "none" },
+    { type: "inside", yAxisIndex: yIndex, filterMode: "none", zoomOnMouseWheel: "shift" },
+    // 底部时间滑块
+    { type: "slider", xAxisIndex: 0, bottom: 8, height: 18 },
+    // 左侧数值滑块（贴最左，不与右轴冲突）
+    { type: "slider", yAxisIndex: yIndex, left: 4, width: 14, filterMode: "none" },
+  ];
+}
+
 // 资产 Y 轴：随 _logScale 在线性/对数间切换。对数轴下 0 值无意义，min 设 1。
 function equityYAxis(name) {
   return {
     type: _logScale ? "log" : "value",
     name,
-    nameTextStyle: { color: "#8b98a5" },
+    nameTextStyle: { color: THEME.axis },
     min: _logScale ? 1 : undefined,
-    axisLabel: { color: "#8b98a5", formatter: (v) => money(v) },
-    splitLine: { lineStyle: { color: "#2a3441" } },
+    axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
+    splitLine: { lineStyle: { color: THEME.grid } },
   };
 }
 
@@ -55,11 +90,11 @@ function singleAxisOption(dates, series) {
   return {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : money(v)) },
-    legend: { textStyle: { color: "#e6edf3" }, top: 0 },
-    grid: { left: 70, right: 24, top: 40, bottom: 50 },
-    xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" } },
+    legend: { textStyle: { color: THEME.legend }, top: 0 },
+    grid: { left: 88, right: 24, top: 40, bottom: 50 },
+    xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis } },
     yAxis: equityYAxis("资产"),
-    dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 18 }],
+    dataZoom: zoomConfig(),
     series,
   };
 }
@@ -69,9 +104,9 @@ function timingChartOption(dates, series) {
   return {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : money(v)) },
-    legend: { textStyle: { color: "#e6edf3" }, top: 0 },
-    grid: { left: 70, right: 70, top: 40, bottom: 50 },
-    xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" } },
+    legend: { textStyle: { color: THEME.legend }, top: 0 },
+    grid: { left: 88, right: 70, top: 40, bottom: 50 },
+    xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis } },
     yAxis: [
       equityYAxis("资产"),
       {
@@ -84,7 +119,7 @@ function timingChartOption(dates, series) {
         splitLine: { show: false },
       },
     ],
-    dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 18 }],
+    dataZoom: zoomConfig(0),
     series,
   };
 }
@@ -305,15 +340,15 @@ function renderTradeChart(strategy) {
   tradeChartInstance.setOption({
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-    legend: { textStyle: { color: "#e6edf3" }, top: 0 },
-    grid: { left: 64, right: 20, top: 32, bottom: 50 },
-    xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" }, scale: true },
+    legend: { textStyle: { color: THEME.legend }, top: 0 },
+    grid: { left: 88, right: 20, top: 32, bottom: 50 },
+    xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis }, scale: true },
     yAxis: {
       scale: true,
-      axisLabel: { color: "#8b98a5", formatter: (v) => money(v) },
-      splitLine: { lineStyle: { color: "#2a3441" } },
+      axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
+      splitLine: { lineStyle: { color: THEME.grid } },
     },
-    dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 16 }],
+    dataZoom: zoomConfig(0),
     series,
   });
   setTimeout(() => tradeChartInstance && tradeChartInstance.resize(), 50);
@@ -381,7 +416,7 @@ function renderRollingChart(result) {
     title: hasData ? undefined : {
       text: "数据不足 4 年，无法计算 Rolling 4Y",
       left: "center", top: "middle",
-      textStyle: { color: "#8b98a5", fontSize: 14, fontWeight: "normal" },
+      textStyle: { color: THEME.axis, fontSize: 14, fontWeight: "normal" },
     },
     tooltip: {
       trigger: "axis",
@@ -404,17 +439,17 @@ function renderRollingChart(result) {
         return html;
       },
     },
-    legend: { textStyle: { color: "#e6edf3" }, top: 0 },
-    grid: { left: 64, right: 24, top: 40, bottom: 50 },
-    xAxis: { type: "category", data: dates, axisLabel: { color: "#8b98a5" } },
+    legend: { textStyle: { color: THEME.legend }, top: 0 },
+    grid: { left: 88, right: 24, top: 40, bottom: 50 },
+    xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis } },
     yAxis: {
       type: "value",
       name: "最优周期",
-      nameTextStyle: { color: "#8b98a5" },
-      axisLabel: { color: "#8b98a5" },
-      splitLine: { lineStyle: { color: "#2a3441" } },
+      nameTextStyle: { color: THEME.axis },
+      axisLabel: { color: THEME.axis },
+      splitLine: { lineStyle: { color: THEME.grid } },
     },
-    dataZoom: [{ type: "inside" }, { type: "slider", bottom: 8, height: 18 }],
+    dataZoom: zoomConfig(0),
     series,
   }, true);
 }
