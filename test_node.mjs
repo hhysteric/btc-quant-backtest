@@ -17,10 +17,10 @@ const sandbox = {};
 const fn = new Function(
   "module",
   code +
-    "\nObject.assign(module, { sma, ema, computeAhr999, backtestDCA, backtestAhr999, backtestBuyHold, runBacktest, analyzeParam, analyzeCross });"
+    "\nObject.assign(module, { sma, ema, computeAhr999, backtestDCA, backtestAhr999, backtestBuyHold, runBacktest, analyzeParam, analyzeCross, runCrossBacktest });"
 );
 fn(sandbox);
-const { runBacktest, computeAhr999, analyzeParam, analyzeCross } = sandbox;
+const { runBacktest, computeAhr999, analyzeParam, analyzeCross, runCrossBacktest } = sandbox;
 
 // 解析样例 CSV
 const csv = fs.readFileSync(path.join(__dirname, "sample_data.csv"), "utf8").trim().split("\n");
@@ -340,5 +340,68 @@ const crossFee = analyzeCross(candles, { fastType: "ma", fastPeriod: 2, slowType
 if (crossFee.summary.finalEquity > cross.summary.finalEquity + 1e-6)
   throw new Error("交叉收费后最终资产反而更高");
 console.log(`MA2×EMA5 手续费效果：无费=$${Math.round(cross.summary.finalEquity)}  收费(0.1%)=$${Math.round(crossFee.summary.finalEquity)}`);
+
+// MA/EMA 交叉策略寻优检查
+console.log("\n=== 交叉策略寻优（四组合）===");
+const oCfg = { initialCash: 10000, fastMin: 2, fastMax: 4, fastStep: 1, slowMin: 5, slowMax: 8, slowStep: 1, feeRate: 0 };
+const oRes = runCrossBacktest(candles, oCfg);
+// rankings 四个组合都在，且各自非空、降序
+const comboKeys = ["maxma", "maxema", "emaxma", "emaxema"];
+for (const k of comboKeys) {
+  const rows = oRes.rankings[k];
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error(`组合 ${k} 排行为空`);
+  for (let i = 1; i < rows.length; i++)
+    if (rows[i].stats.finalEquity > rows[i - 1].stats.finalEquity + 1e-6)
+      throw new Error(`组合 ${k} 未按最终资产降序`);
+  // 每条 fast<slow
+  for (const r of rows)
+    if (!(r.params.fast < r.params.slow)) throw new Error(`组合 ${k} 出现 fast>=slow：${r.label}`);
+}
+// strategies 含 best_cross 与 buyhold，equity 长度对齐
+const bestCross = oRes.strategies.find((s) => s.key === "best_cross");
+const oBh = oRes.strategies.find((s) => s.key === "buyhold");
+if (!bestCross || !oBh) throw new Error("交叉寻优缺少 best_cross 或 buyhold");
+if (bestCross.equity.length !== candles.length || oBh.equity.length !== candles.length)
+  throw new Error("交叉寻优 equity 长度异常");
+if (!Array.isArray(bestCross.maLines) || bestCross.maLines.length !== 2)
+  throw new Error("best_cross 应有两条均线");
+// 全局最优 finalEquity 应 ≥ 各组合 Top1 中的最小值（即确实取到全局最大）
+const topPerCombo = comboKeys.map((k) => oRes.rankings[k][0].stats.finalEquity);
+const globalBestEq = bestCross.stats.finalEquity;
+if (globalBestEq < Math.max(...topPerCombo) - 1e-6)
+  throw new Error("best_cross 未取到四组合中的全局最优");
+console.log(`四组合 Top1 最终资产：${comboKeys.map((k, i) => `${k}=$${Math.round(topPerCombo[i])}`).join("  ")}`);
+console.log(`全局最优：${bestCross.name}  最终=$${Math.round(globalBestEq)}  均线=${bestCross.maLines.map((l) => l.name).join(", ")}`);
+
+// 手续费应降低全局最优最终资产
+const oResFee = runCrossBacktest(candles, { ...oCfg, feeRate: 0.001 });
+const bestCrossFee = oResFee.strategies.find((s) => s.key === "best_cross");
+if (bestCrossFee.stats.finalEquity > globalBestEq + 1e-6)
+  throw new Error("交叉寻优收费后最终资产反而更高");
+console.log(`交叉手续费效果：无费=$${Math.round(globalBestEq)}  收费(0.1%)=$${Math.round(bestCrossFee.stats.finalEquity)}`);
+
+// rolling 结构：样例约 2 年应全 null
+if (!oRes.rolling || oRes.rolling.dates.length !== candles.length) throw new Error("交叉 rolling.dates 长度异常");
+if (oRes.rolling.windowYears !== 4) throw new Error("交叉 rolling.windowYears 应为 4");
+const oRollKey = oRes.bestCombo.fastType; // rolling 用快线类型作 key
+const oRollSeries = oRes.rolling[oRollKey];
+if (!oRollSeries) throw new Error("交叉 rolling 缺少最优组合序列");
+const oSampleNonNull = oRollSeries.returns.filter((v) => v != null).length;
+if (oSampleNonNull !== 0) throw new Error(`样例约 2 年交叉 rolling 应全空，实际 ${oSampleNonNull}`);
+
+// 合成 5 年日线：rolling 应产出非空，且 short<long、首个非空落后段
+console.log("\n=== 交叉策略 Rolling 4Y 合成数据验证 ===");
+const oSynthRes = runCrossBacktest(synth, { initialCash: 10000, fastMin: 10, fastMax: 30, fastStep: 10, slowMin: 40, slowMax: 60, slowStep: 10, feeRate: 0 });
+const oSynthRoll = oSynthRes.rolling[oSynthRes.bestCombo.fastType];
+const oNonNull = oSynthRoll.returns.filter((v) => v != null).length;
+if (oNonNull === 0) throw new Error("合成 5 年交叉 rolling 仍全空");
+const oFirstNonNull = oSynthRoll.returns.findIndex((v) => v != null);
+if (oFirstNonNull < synthN * 0.7) throw new Error(`交叉 rolling 非空起点过早(${oFirstNonNull})`);
+if (oSynthRoll.shortPeriods.at(-1) == null || oSynthRoll.longPeriods.at(-1) == null)
+  throw new Error("交叉 rolling 末点缺少 short/long");
+if (oSynthRoll.shortPeriods.at(-1) >= oSynthRoll.longPeriods.at(-1))
+  throw new Error("交叉 rolling 短周期应小于长周期");
+if (oSynthRoll.single !== false) throw new Error("交叉 rolling.single 应为 false");
+console.log(`合成数据交叉 rolling：非空=${oNonNull}  首个非空 idx=${oFirstNonNull}  末点=${oSynthRoll.labels.at(-1)}  最优组合=${oSynthRes.bestCombo.fastType}×${oSynthRes.bestCombo.slowType}`);
 
 console.log("\n✓ 健全性检查通过");

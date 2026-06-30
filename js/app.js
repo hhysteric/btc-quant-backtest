@@ -3,6 +3,7 @@
 let candles = null;        // 策略回测视图的行情
 let analyzeCandles = null; // 单参数回合分析视图的行情（独立加载）
 let crossCandles = null;   // MA/EMA 交叉回合分析视图的行情（独立加载）
+let optimizeCandles = null; // MA/EMA 交叉策略回测视图的行情（独立加载）
 
 const $ = (id) => document.getElementById(id);
 
@@ -14,6 +15,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     $("backtestView").classList.toggle("hidden", view !== "backtest");
     $("analyzeView").classList.toggle("hidden", view !== "analyze");
     $("crossView").classList.toggle("hidden", view !== "cross");
+    $("optimizeView").classList.toggle("hidden", view !== "optimize");
     if (typeof rerenderAllCharts === "function") rerenderAllCharts();
   });
 });
@@ -39,6 +41,7 @@ const _today = new Date().toISOString().slice(0, 10);
 $("endDate").value = _today;
 $("aEndDate").value = _today;
 $("xEndDate").value = _today;
+$("oEndDate").value = _today;
 
 // 数据源切换：内置/API 显示 API 字段（内置也用日期范围裁剪），文件显示上传字段。
 // prefix 区分两个视图的元素 id（回测视图无前缀，分析视图前缀 "a"）。
@@ -56,17 +59,22 @@ function makeSyncSourceFields(prefix) {
 const syncSourceFields = makeSyncSourceFields("");
 const syncAnalyzeSourceFields = makeSyncSourceFields("a");
 const syncCrossSourceFields = makeSyncSourceFields("x");
+const syncOptimizeSourceFields = makeSyncSourceFields("o");
 $("source").addEventListener("change", syncSourceFields);
 $("aSource").addEventListener("change", syncAnalyzeSourceFields);
 $("xSource").addEventListener("change", syncCrossSourceFields);
+$("oSource").addEventListener("change", syncOptimizeSourceFields);
 syncSourceFields();
 syncAnalyzeSourceFields();
 syncCrossSourceFields();
+syncOptimizeSourceFields();
 
 // 对数刻度开关
 $("logScale").addEventListener("change", () => setLogScale($("logScale").checked));
 $("rollingLogScale").addEventListener("change", () => setRollingLog($("rollingLogScale").checked));
 $("analyzeLogScale").addEventListener("change", () => setAnalyzeLog($("analyzeLogScale").checked));
+$("oLogScale").addEventListener("change", () => setOLog($("oLogScale").checked));
+$("oRollingLog").addEventListener("change", () => setORollingLog($("oRollingLog").checked));
 
 // 连赢/连亏区间背景开关；「含单次盈亏」仅在背景开启时有意义，随主开关启用/禁用。
 $("analyzeBands").addEventListener("change", () => {
@@ -96,6 +104,9 @@ $("aFeeEnabled").addEventListener("change", () => {
 });
 $("xFeeEnabled").addEventListener("change", () => {
   $("xFeeRate").disabled = !$("xFeeEnabled").checked;
+});
+$("oFeeEnabled").addEventListener("change", () => {
+  $("oFeeRate").disabled = !$("oFeeEnabled").checked;
 });
 
 // 回合分析视图的单/双均线输入随本视图「均线模式」显隐
@@ -312,6 +323,63 @@ $("crossBtn").addEventListener("click", () => {
     } catch (err) {
       $("crossStatus").textContent = "失败：" + err.message;
       $("crossStatus").style.color = "#ef5350";
+    }
+  }, 30);
+});
+
+// 交叉策略回测视图：独立加载行情
+$("oLoadBtn").addEventListener("click", async () => {
+  $("oLoadBtn").disabled = true;
+  $("optimizeBtn").disabled = true;
+  setStatus("oDataStatus", "加载中…", false);
+  try {
+    optimizeCandles = await loadCandlesFor("o");
+    if (!optimizeCandles || optimizeCandles.length < 10) throw new Error("数据量过少，无法回测");
+    setStatus("oDataStatus", `已加载 ${optimizeCandles.length} 根 K 线（${optimizeCandles[0].date} ~ ${optimizeCandles[optimizeCandles.length - 1].date}）${srcNoteFor("o")}`, false);
+    $("optimizeBtn").disabled = false;
+  } catch (err) {
+    optimizeCandles = null;
+    setStatus("oDataStatus", "加载失败：" + err.message, true);
+  } finally {
+    $("oLoadBtn").disabled = false;
+  }
+});
+
+// 运行交叉策略寻优
+$("optimizeBtn").addEventListener("click", () => {
+  if (!optimizeCandles) return;
+  $("optimizeStatus").textContent = "计算中…";
+  $("optimizeStatus").style.color = "#8b98a5";
+
+  setTimeout(() => {
+    try {
+      const cfg = {
+        initialCash: parseFloat($("oInitialCash").value) || 10000,
+        fastMin: parseInt($("oFastMin").value) || 5,
+        fastMax: parseInt($("oFastMax").value) || 60,
+        fastStep: parseInt($("oFastStep").value) || 5,
+        slowMin: parseInt($("oSlowMin").value) || 20,
+        slowMax: parseInt($("oSlowMax").value) || 200,
+        slowStep: parseInt($("oSlowStep").value) || 10,
+        feeRate: $("oFeeEnabled").checked ? (parseFloat($("oFeeRate").value) || 0) / 100 : 0,
+      };
+      if (cfg.fastMax <= cfg.fastMin) throw new Error("快线周期上限需大于下限");
+      if (cfg.slowMax <= cfg.slowMin) throw new Error("慢线周期上限需大于下限");
+      if (cfg.fastStep < 1 || cfg.slowStep < 1) throw new Error("步长需 ≥ 1");
+      if (cfg.slowMax <= cfg.fastMin) throw new Error("慢线周期范围需高于快线下限（否则无有效配对）");
+
+      const t0 = performance.now();
+      const result = runCrossBacktest(optimizeCandles, cfg);
+      const ms = Math.round(performance.now() - t0);
+
+      renderOptimize(result);
+      const bestLabel = result.best && result.best.cross ? result.best.cross.label : "无";
+      $("optimizeStatus").textContent = `完成（${ms} ms，最优 ${bestLabel}）`;
+      $("optimizeStatus").style.color = "#26a69a";
+      $("optimizeResults").scrollIntoView({ behavior: "smooth" });
+    } catch (err) {
+      $("optimizeStatus").textContent = "失败：" + err.message;
+      $("optimizeStatus").style.color = "#ef5350";
     }
   }, 30);
 });

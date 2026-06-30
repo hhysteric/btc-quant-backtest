@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MA回测</title>
-  <link rel="stylesheet" href="css/style.css?v=20260630j" />
+  <link rel="stylesheet" href="css/style.css?v=20260630k" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -17,6 +17,7 @@
       <button class="tab-btn active" data-view="backtest">策略回测</button>
       <button class="tab-btn" data-view="analyze">单参数回合分析</button>
       <button class="tab-btn" data-view="cross">MA/EMA 交叉回合分析</button>
+      <button class="tab-btn" data-view="optimize">MA/EMA 交叉策略回测</button>
     </div>
   </header>
 
@@ -356,17 +357,117 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
       </div>
     </section>
     </div>
+
+    <div id="optimizeView" class="view hidden">
+    <section class="panel">
+      <h2>1. 数据源</h2>
+      <div class="row">
+        <label>来源
+          <select id="oSource">
+            <option value="builtin" selected>内置 BTC 历史（2010 至今，自动补最新）</option>
+            <option value="api">Binance API</option>
+            <option value="file">本地 Excel / CSV（其他代币）</option>
+          </select>
+        </label>
+
+        <div id="oApiFields" class="inline">
+          <label>交易对
+            <input id="oSymbol" type="text" value="BTCUSDT" />
+          </label>
+          <label>周期
+            <select id="oInterval">
+              <option value="1d" selected>日线</option>
+              <option value="1w">周线</option>
+              <option value="1M">月线</option>
+            </select>
+          </label>
+          <label>开始日期
+            <input id="oStartDate" type="date" value="2010-01-01" />
+          </label>
+          <label>结束日期
+            <input id="oEndDate" type="date" />
+          </label>
+        </div>
+
+        <div id="oFileFields" class="inline hidden">
+          <label>选择文件 (.xlsx / .csv)
+            <input id="oFileInput" type="file" accept=".xlsx,.xls,.csv" />
+          </label>
+          <span class="hint">需含列：date, open, high, low, close（兼容中文表头）</span>
+        </div>
+      </div>
+      <button id="oLoadBtn">加载行情</button>
+      <span id="oDataStatus" class="status"></span>
+    </section>
+
+    <section class="panel">
+      <h2>2. 寻优参数</h2>
+      <p class="hint" style="margin:-8px 0 12px">遍历「一条快线 × 一条慢线」的交叉策略：快线上穿慢线（金叉）→ 买入，下穿（死叉）→ 卖出。MA×MA、MA×EMA、EMA×MA、EMA×EMA 四种线型组合各自在周期范围内寻优排行。组合数随步长变小快速增长，步长太小会很慢。</p>
+      <div class="grid">
+        <label>初始资金 (USDT)
+          <input id="oInitialCash" type="number" value="10000" min="0" />
+        </label>
+        <label>快线周期下限
+          <input id="oFastMin" type="number" value="5" min="2" />
+        </label>
+        <label>快线周期上限
+          <input id="oFastMax" type="number" value="60" min="3" />
+        </label>
+        <label>快线步长
+          <input id="oFastStep" type="number" value="5" min="1" />
+        </label>
+        <label>慢线周期下限
+          <input id="oSlowMin" type="number" value="20" min="2" />
+        </label>
+        <label>慢线周期上限
+          <input id="oSlowMax" type="number" value="200" min="3" />
+        </label>
+        <label>慢线步长
+          <input id="oSlowStep" type="number" value="10" min="1" />
+        </label>
+        <label class="fee-toggle">
+          <span class="fee-row">
+            <input type="checkbox" id="oFeeEnabled" /> 收取手续费
+          </span>
+          <input id="oFeeRate" type="number" value="0.1" step="0.01" min="0" disabled />
+          <span class="hint">每笔买卖按成交额百分比扣除（%）</span>
+        </label>
+      </div>
+      <button id="optimizeBtn" disabled>运行回测</button>
+      <span id="optimizeStatus" class="status"></span>
+    </section>
+
+    <section class="panel" id="optimizeResults" style="display:none">
+      <h2>3. 结果</h2>
+
+      <h3>最优交叉组合排行（按最终资产）</h3>
+      <div id="oRankTable"></div>
+
+      <h3>最优交叉策略资金曲线（同一初始资金，一次性投入）</h3>
+      <label class="log-toggle">
+        <input type="checkbox" id="oLogScale" /> 对数刻度（资金曲线 Y 轴）
+      </label>
+      <div id="oTimingChart" class="chart"></div>
+
+      <h3>Rolling 4Y 最优快/慢周期变动</h3>
+      <p class="hint" style="margin:-4px 0 8px">每个时间点回看过去 4 年，在快/慢周期范围内寻找该窗口收益最大的交叉组合（仅用全局最优的线型组合），左轴为最优快/慢周期（实线快、虚线慢），右轴叠加 BTC 价格便于对照。窗口不足 4 年的早期区间不绘制。</p>
+      <label class="log-toggle">
+        <input type="checkbox" id="oRollingLog" /> 对数刻度（BTC 价格 Y 轴）
+      </label>
+      <div id="oRollingChart" class="chart"></div>
+    </section>
+    </div>
   </main>
 
   <footer>
     <p>纯前端运行，数据与计算均在你的浏览器本地完成。仅供研究，不构成投资建议。</p>
   </footer>
 
-  <script src="js/indicators.js?v=20260630j"></script>
-  <script src="js/data.js?v=20260630j"></script>
-  <script src="js/strategies.js?v=20260630j"></script>
-  <script src="js/backtest.js?v=20260630j"></script>
-  <script src="js/charts.js?v=20260630j"></script>
-  <script src="js/app.js?v=20260630j"></script>
+  <script src="js/indicators.js?v=20260630k"></script>
+  <script src="js/data.js?v=20260630k"></script>
+  <script src="js/strategies.js?v=20260630k"></script>
+  <script src="js/backtest.js?v=20260630k"></script>
+  <script src="js/charts.js?v=20260630k"></script>
+  <script src="js/app.js?v=20260630k"></script>
 </body>
 </html>

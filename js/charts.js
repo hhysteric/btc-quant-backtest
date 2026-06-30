@@ -5,6 +5,7 @@ let dcaChartInstance = null;
 let _lastResult = null; // 供明细弹窗按 key 取回策略数据
 let _lastAnalyze = null; // 自定义参数回合分析结果（供主题切换重绘）
 let _lastCross = null;   // MA/EMA 交叉回合分析结果（供主题切换重绘）
+let _lastOptimize = null; // MA/EMA 交叉策略寻优结果（供主题切换重绘）
 
 const COLORS = {
   best_ma: "#f7931a",
@@ -75,6 +76,10 @@ function rerenderAllCharts() {
   }
   if (_lastAnalyze) renderAnalyzeChart(_lastAnalyze);
   if (_lastCross) renderCrossChart(_lastCross);
+  if (_lastOptimize) {
+    oTimingChartInstance = renderTimingChartTo(_lastOptimize, "oTimingChart", oTimingChartInstance, _oLog);
+    oRollingChartInstance = renderRollingChartTo(_lastOptimize, "oRollingChart", oRollingChartInstance, _oRollingLog);
+  }
 }
 
 // 资产 Y 轴是否使用对数刻度（由页面开关控制）。
@@ -133,6 +138,20 @@ function setTradeLog(on) {
   if (_lastTradeStrategy) renderTradeChart(_lastTradeStrategy);
 }
 
+// 交叉策略寻优板块的图表实例与对数开关（与其他板块各自独立）。
+let oTimingChartInstance = null;
+let oRollingChartInstance = null;
+let _oLog = false;       // 最优交叉资产曲线 Y 轴
+let _oRollingLog = false; // Rolling 图右轴 BTC 价格
+function setOLog(on) {
+  _oLog = !!on;
+  if (_lastOptimize) oTimingChartInstance = renderTimingChartTo(_lastOptimize, "oTimingChart", oTimingChartInstance, _oLog);
+}
+function setORollingLog(on) {
+  _oRollingLog = !!on;
+  if (_lastOptimize) oRollingChartInstance = renderRollingChartTo(_lastOptimize, "oRollingChart", oRollingChartInstance, _oRollingLog);
+}
+
 function pct(x) {
   const v = (x * 100).toFixed(2) + "%";
   return x >= 0 ? `<span class="pos">+${v}</span>` : `<span class="neg">${v}</span>`;
@@ -162,34 +181,34 @@ function zoomConfig(yIndex = 0) {
   ];
 }
 
-// 资产 Y 轴：随 _logScale 在线性/对数间切换。对数轴下 0 值无意义，min 设 1。
-function equityYAxis(name) {
+// 资产 Y 轴：随 log 在线性/对数间切换。对数轴下 0 值无意义，min 设 1。
+function equityYAxis(name, log) {
   return {
-    type: _logScale ? "log" : "value",
+    type: log ? "log" : "value",
     name,
     nameTextStyle: { color: THEME.axis },
-    min: _logScale ? 1 : undefined,
+    min: log ? 1 : undefined,
     axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
     splitLine: { lineStyle: { color: THEME.grid } },
   };
 }
 
 // 单 Y 轴图（定投图用）。
-function singleAxisOption(dates, series) {
+function singleAxisOption(dates, series, log) {
   return {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : money(v)) },
     legend: { textStyle: { color: THEME.legend }, top: 0 },
     grid: { left: 88, right: 24, top: 40, bottom: 50 },
     xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis } },
-    yAxis: equityYAxis("资产"),
+    yAxis: equityYAxis("资产", log),
     dataZoom: zoomConfig(),
     series,
   };
 }
 
 // 双 Y 轴图（择时图用）：左轴资产，右轴 BTC 价格。
-function timingChartOption(dates, series) {
+function timingChartOption(dates, series, log) {
   return {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : money(v)) },
@@ -197,12 +216,12 @@ function timingChartOption(dates, series) {
     grid: { left: 88, right: 70, top: 40, bottom: 50 },
     xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis } },
     yAxis: [
-      equityYAxis("资产"),
+      equityYAxis("资产", log),
       {
-        type: _logScale ? "log" : "value",
+        type: log ? "log" : "value",
         name: "BTC",
         position: "right",
-        min: _logScale ? 1 : undefined,
+        min: log ? 1 : undefined,
         nameTextStyle: { color: COLORS.btc },
         axisLabel: { color: COLORS.btc, formatter: (v) => money(v) },
         splitLine: { show: false },
@@ -225,8 +244,14 @@ function ensureChart(id, current) {
 
 // 择时组：最优 MA/EMA 与买入持有，同一初始资金的资产曲线 + BTC 走势（右Y轴）。
 function renderTimingChart(result) {
-  timingChartInstance = ensureChart("timingChart", timingChartInstance);
-  if (!timingChartInstance) return;
+  timingChartInstance = renderTimingChartTo(result, "timingChart", timingChartInstance, _logScale);
+}
+
+// 择时图内核：由「策略回测」与「交叉策略回测」两板块共用，差异仅在容器、实例、对数开关。
+// best_cross 没有专属配色，落到默认 best_ma 橙色即可。返回（可能新建的）实例。
+function renderTimingChartTo(result, elId, instance, log) {
+  instance = ensureChart(elId, instance);
+  if (!instance) return instance;
 
   const dates = result.candles.map((c) => c.date);
   const series = result.strategies
@@ -237,7 +262,7 @@ function renderTimingChart(result) {
       showSymbol: false,
       yAxisIndex: 0,
       lineStyle: { width: s.key === "buyhold" ? 1.5 : 2, type: s.key === "buyhold" ? "dashed" : "solid" },
-      itemStyle: { color: COLORS[s.key] },
+      itemStyle: { color: COLORS[s.key] || COLORS.best_ma },
       data: s.equity.map((v) => (v == null ? null : Math.round(v))),
     }));
 
@@ -252,7 +277,8 @@ function renderTimingChart(result) {
     data: result.candles.map((c) => c.close),
   });
 
-  timingChartInstance.setOption(timingChartOption(dates, series), true);
+  instance.setOption(timingChartOption(dates, series, log), true);
+  return instance;
 }
 
 // 定投组：每个策略画两条线——账户市值（实线）与累计投入（虚线）。
@@ -283,7 +309,7 @@ function renderDcaChart(result) {
     });
   }
 
-  dcaChartInstance.setOption(singleAxisOption(dates, series), true);
+  dcaChartInstance.setOption(singleAxisOption(dates, series, _logScale), true);
 }
 
 function renderSummaryTable(result) {
@@ -445,11 +471,16 @@ let rollingChartInstance = null;
 // 单均线模式每个类型一条线（周期值）；双均线模式画短/长两条（虚线为长）。
 // tooltip 额外显示该点对应收益率。
 function renderRollingChart(result) {
-  rollingChartInstance = ensureChart("rollingChart", rollingChartInstance);
-  if (!rollingChartInstance) return;
+  rollingChartInstance = renderRollingChartTo(result, "rollingChart", rollingChartInstance, _rollingLog);
+}
+
+// Rolling 图内核：由「策略回测」与「交叉策略回测」共用，差异仅在容器、实例、右轴 BTC 对数开关。
+function renderRollingChartTo(result, elId, instance, rollingLog) {
+  instance = ensureChart(elId, instance);
+  if (!instance) return instance;
 
   const r = result.rolling;
-  if (!r) return;
+  if (!r) return instance;
   const dates = r.dates;
   const series = [];
   const labelMap = {}; // type -> 每根的最优参数标签
@@ -512,7 +543,7 @@ function renderRollingChart(result) {
   });
 
   const hasData = hasPeriodData;
-  rollingChartInstance.setOption({
+  instance.setOption({
     backgroundColor: "transparent",
     title: hasData ? undefined : {
       text: "数据不足 4 年，无法计算 Rolling 4Y",
@@ -556,7 +587,7 @@ function renderRollingChart(result) {
         splitLine: { lineStyle: { color: THEME.grid } },
       },
       {
-        type: _rollingLog ? "log" : "value",
+        type: rollingLog ? "log" : "value",
         name: "BTC",
         position: "right",
         nameTextStyle: { color: ROLLING_COLORS.btc },
@@ -567,13 +598,24 @@ function renderRollingChart(result) {
     dataZoom: zoomConfig(0),
     series,
   }, true);
+  return instance;
 }
 
-function renderRankTable(result) {
+// 把 rankings 的 key 美化为标题：交叉版 key 形如 "maxema" → "MA × EMA"；
+// 单类型 key（"ma"/"ema"）沿用大写，保证「策略回测」板块标题不变。
+function rankTitle(key) {
+  if (key.includes("x")) {
+    const [a, b] = key.split("x");
+    return `${a.toUpperCase()} × ${b.toUpperCase()}`;
+  }
+  return key.toUpperCase();
+}
+
+function renderRankTable(result, containerId = "rankTable") {
   const blocks = [];
   for (const type of Object.keys(result.rankings)) {
     const rows = result.rankings[type].slice(0, 10);
-    let html = `<h4 style="margin:16px 0 8px;color:#8b98a5">${type.toUpperCase()} Top 10</h4>`;
+    let html = `<h4 style="margin:16px 0 8px;color:#8b98a5">${rankTitle(type)} Top 10</h4>`;
     html += `<table><thead><tr><th>排名</th><th>参数</th><th>最终资产</th><th>总收益率</th><th>最大回撤</th><th>交易次数</th></tr></thead><tbody>`;
     rows.forEach((r, i) => {
       html += `<tr class="${i === 0 ? "best" : ""}">
@@ -588,7 +630,7 @@ function renderRankTable(result) {
     html += "</tbody></table>";
     blocks.push(html);
   }
-  document.getElementById("rankTable").innerHTML = blocks.join("");
+  document.getElementById(containerId).innerHTML = blocks.join("");
 }
 
 let analyzeChartInstance = null;
@@ -895,10 +937,21 @@ function renderResults(result) {
   renderRollingChart(result);
 }
 
+// MA/EMA 交叉策略寻优：排行榜 + 最优交叉资产曲线 + Rolling 4Y（复用择时/排行/Rolling 渲染器）。
+function renderOptimize(result) {
+  _lastOptimize = result;
+  document.getElementById("optimizeResults").style.display = "block";
+  renderRankTable(result, "oRankTable");
+  oTimingChartInstance = renderTimingChartTo(result, "oTimingChart", oTimingChartInstance, _oLog);
+  oRollingChartInstance = renderRollingChartTo(result, "oRollingChart", oRollingChartInstance, _oRollingLog);
+}
+
 window.addEventListener("resize", () => {
   if (timingChartInstance) timingChartInstance.resize();
   if (dcaChartInstance) dcaChartInstance.resize();
   if (rollingChartInstance) rollingChartInstance.resize();
   if (analyzeChartInstance) analyzeChartInstance.resize();
   if (crossChartInstance) crossChartInstance.resize();
+  if (oTimingChartInstance) oTimingChartInstance.resize();
+  if (oRollingChartInstance) oRollingChartInstance.resize();
 });
