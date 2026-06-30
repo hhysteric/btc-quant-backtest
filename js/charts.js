@@ -18,6 +18,42 @@ const COLORS = {
 // Rolling 图专用配色：MA/EMA 区分度更高（橙 vs 青蓝），并单列 BTC 价格色。
 const ROLLING_COLORS = { ma: "#f7931a", ema: "#29b6f6", btc: "#8b98a5" };
 
+// 买卖标注配色：买入绿、卖出红（深浅色下均为高饱和色，白字清晰）。
+const TRADE_COLORS = { buy: "#16a34a", sell: "#dc2626" };
+
+// 构造买卖点 markPoint 配置：买入在 K 线「下方」朝上的箭头，卖出在「上方」朝下的箭头，
+// 一上一下错开，避免与 K 线重叠。两个 series 共用，确保两张图风格一致。
+function buildTradeMarkPoint(trades, dates) {
+  const dateIndex = new Map(dates.map((d, i) => [d, i]));
+  const data = trades.map((t) => {
+    const isBuy = t.side === "buy";
+    return {
+      name: isBuy ? "买入" : "卖出",
+      coord: [t.date, t.price],
+      // 箭头：买入朝上(默认)放在 K 线下方，卖出朝下(翻转)放在 K 线上方，一上一下错开。
+      symbol: "arrow",
+      symbolRotate: isBuy ? 0 : 180,
+      symbolSize: [12, 16],
+      symbolOffset: isBuy ? [0, 22] : [0, -22],
+      itemStyle: {
+        color: isBuy ? TRADE_COLORS.buy : TRADE_COLORS.sell,
+        borderColor: "#fff",
+        borderWidth: 1,
+      },
+      // 文字放在箭头外侧（买在下方、卖在上方），不挤进箭头内。
+      label: {
+        show: true,
+        position: isBuy ? "bottom" : "top",
+        color: isBuy ? TRADE_COLORS.buy : TRADE_COLORS.sell,
+        fontSize: 11,
+        fontWeight: "bold",
+        formatter: isBuy ? "买" : "卖",
+      },
+    };
+  }).filter((m) => dateIndex.has(m.coord[0]));
+  return { data };
+}
+
 // 主题相关颜色：从 CSS 变量读取，随深/浅色切换。图表配色据此刷新。
 const THEME = { axis: "#8b98a5", grid: "#2a3441", legend: "#e6edf3" };
 function refreshThemeColors() {
@@ -326,21 +362,8 @@ function renderTradeChart(strategy) {
     });
   });
 
-  // 买卖点标注（挂在 K 线 series 上）
-  const dateIndex = new Map(dates.map((d, i) => [d, i]));
-  const markData = strategy.trades.map((t) => ({
-    name: t.side === "buy" ? "买入" : "卖出",
-    coord: [t.date, t.price],
-    value: t.side === "buy" ? "B" : "S",
-    itemStyle: { color: t.side === "buy" ? "#26a69a" : "#ef5350" },
-    symbol: t.side === "buy" ? "arrow" : "pin",
-    symbolRotate: t.side === "buy" ? 0 : 180,
-  })).filter((m) => dateIndex.has(m.coord[0]));
-  series[0].markPoint = {
-    symbolSize: 22,
-    label: { color: "#fff", fontSize: 10, formatter: (p) => p.value },
-    data: markData,
-  };
+  // 买卖点标注（挂在 K 线 series 上）：买入朝上在下方、卖出朝下在上方，一上一下错开。
+  series[0].markPoint = buildTradeMarkPoint(strategy.trades, dates);
 
   tradeChartInstance.setOption({
     backgroundColor: "transparent",
@@ -690,20 +713,8 @@ function renderAnalyzeChart(result) {
     data: erData,
   });
 
-  const dateIndex = new Map(dates.map((d, i) => [d, i]));
-  const markData = result.trades.map((t) => ({
-    name: t.side === "buy" ? "买入" : "卖出",
-    coord: [t.date, t.price],
-    value: t.side === "buy" ? "B" : "S",
-    itemStyle: { color: t.side === "buy" ? "#26a69a" : "#ef5350" },
-    symbol: t.side === "buy" ? "arrow" : "pin",
-    symbolRotate: t.side === "buy" ? 0 : 180,
-  })).filter((m) => dateIndex.has(m.coord[0]));
-  series[0].markPoint = {
-    symbolSize: 22,
-    label: { color: "#fff", fontSize: 10, formatter: (p) => p.value },
-    data: markData,
-  };
+  // 买卖点标注：买入朝上在下方、卖出朝下在上方，一上一下错开。
+  series[0].markPoint = buildTradeMarkPoint(result.trades, dates);
   // 在「当前/未来」分界处画一条竖向参考线。
   if (futureDates.length && nHist > 0) {
     series[0].markLine = {
