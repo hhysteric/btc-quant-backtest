@@ -85,6 +85,23 @@ function setLogScale(on) {
   }
 }
 
+// 各「BTC 行情」图独立的对数刻度开关（互不影响）。
+let _rollingLog = false; // Rolling 图右轴 BTC 价格
+let _analyzeLog = false; // 单参数分析图左轴价格（K 线）
+let _tradeLog = false;   // 成交明细弹窗的 K 线价格轴
+function setRollingLog(on) {
+  _rollingLog = !!on;
+  if (_lastResult) renderRollingChart(_lastResult);
+}
+function setAnalyzeLog(on) {
+  _analyzeLog = !!on;
+  if (_lastAnalyze) renderAnalyzeChart(_lastAnalyze);
+}
+function setTradeLog(on) {
+  _tradeLog = !!on;
+  if (_lastTradeStrategy) renderTradeChart(_lastTradeStrategy);
+}
+
 function pct(x) {
   const v = (x * 100).toFixed(2) + "%";
   return x >= 0 ? `<span class="pos">+${v}</span>` : `<span class="neg">${v}</span>`;
@@ -304,6 +321,9 @@ function openTradesModal(key) {
           <button class="modal-close" id="tradesClose">✕</button>
         </div>
         <div class="modal-body">
+          <label class="log-toggle">
+            <input type="checkbox" id="tradeLogScale" /> 对数刻度（价格 Y 轴）
+          </label>
           <div id="tradeChart" class="trade-chart"></div>
           <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
         </div>
@@ -317,24 +337,29 @@ function openTradesModal(key) {
   const mask = document.getElementById("tradesMask");
   const close = () => {
     if (tradeChartInstance) { tradeChartInstance.dispose(); tradeChartInstance = null; }
+    _lastTradeStrategy = null;
     mask.remove();
   };
   document.getElementById("tradesClose").addEventListener("click", close);
   mask.addEventListener("click", (e) => { if (e.target === mask) close(); });
+  const logBox = document.getElementById("tradeLogScale");
+  if (logBox) { logBox.checked = _tradeLog; logBox.addEventListener("change", () => setTradeLog(logBox.checked)); }
 
   // 渲染 K 线 + 均线 + 买卖标注
   renderTradeChart(s);
 }
 
 let tradeChartInstance = null;
+let _lastTradeStrategy = null; // 当前明细弹窗策略（供对数开关重绘）
 
 // 明细图：BTC 蜡烛图 + 该策略均线 + 买卖点标注。
 function renderTradeChart(strategy) {
+  _lastTradeStrategy = strategy;
   const candles = _lastResult.candles;
   const el = document.getElementById("tradeChart");
   if (!el) return;
   // 模态框中容器刚插入，延迟一帧确保有尺寸
-  tradeChartInstance = echarts.init(el);
+  tradeChartInstance = tradeChartInstance || echarts.init(el);
 
   const dates = candles.map((c) => c.date);
   const ohlc = candles.map((c) => [c.open, c.close, c.low, c.high]); // ECharts: [open, close, low, high]
@@ -372,13 +397,14 @@ function renderTradeChart(strategy) {
     grid: { left: 88, right: 20, top: 32, bottom: 50 },
     xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis }, scale: true },
     yAxis: {
-      scale: true,
+      type: _tradeLog ? "log" : "value",
+      scale: !_tradeLog,
       axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
       splitLine: { lineStyle: { color: THEME.grid } },
     },
     dataZoom: zoomConfig(0),
     series,
-  });
+  }, true);
   setTimeout(() => tradeChartInstance && tradeChartInstance.resize(), 50);
 }
 
@@ -499,7 +525,7 @@ function renderRollingChart(result) {
         splitLine: { lineStyle: { color: THEME.grid } },
       },
       {
-        type: "value",
+        type: _rollingLog ? "log" : "value",
         name: "BTC",
         position: "right",
         nameTextStyle: { color: ROLLING_COLORS.btc },
@@ -734,7 +760,8 @@ function renderAnalyzeChart(result) {
     xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis }, scale: true },
     yAxis: [
       {
-        scale: true,
+        type: _analyzeLog ? "log" : "value",
+        scale: !_analyzeLog,
         axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
         splitLine: { lineStyle: { color: THEME.grid } },
       },

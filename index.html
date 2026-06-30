@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MA回测</title>
-  <link rel="stylesheet" href="css/style.css?v=20260630g" />
+  <link rel="stylesheet" href="css/style.css?v=20260630h" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -146,6 +146,9 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
 
       <h3>Rolling 4Y 最优均线周期变动</h3>
       <p class="hint" style="margin:-4px 0 8px">每个时间点回看过去 4 年，在当前周期范围内逐根寻优，左轴为该窗口内收益最大的 MA/EMA 周期（如某日 MA35、数月后变 MA110），右轴叠加 BTC 价格走势便于对照。双均线模式画短/长两条线（虚线为长周期）。悬停可看对应窗口收益率。窗口不足 4 年的早期区间不绘制。</p>
+      <label class="log-toggle">
+        <input type="checkbox" id="rollingLogScale" /> 对数刻度（BTC 价格 Y 轴）
+      </label>
       <div id="rollingChart" class="chart"></div>
     </section>
     </div>
@@ -235,6 +238,9 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
         <h3>整体表现</h3>
         <div id="analyzeSummary"></div>
         <h3>买卖点（K 线 + 均线 + 进出标注）</h3>
+        <label class="log-toggle">
+          <input type="checkbox" id="analyzeLogScale" /> 对数刻度（价格 Y 轴）
+        </label>
         <div id="analyzeChart" class="chart"></div>
         <h3>逐回合收益明细</h3>
         <div id="roundsTable"></div>
@@ -247,11 +253,11 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
     <p>纯前端运行，数据与计算均在你的浏览器本地完成。仅供研究，不构成投资建议。</p>
   </footer>
 
-  <script src="js/indicators.js?v=20260630g"></script>
-  <script src="js/data.js?v=20260630g"></script>
-  <script src="js/strategies.js?v=20260630g"></script>
-  <script src="js/backtest.js?v=20260630g"></script>
-  <script src="js/charts.js?v=20260630g"></script>
-  <script src="js/app.js?v=20260630g"></script>
+  <script src="js/indicators.js?v=20260630h"></script>
+  <script src="js/data.js?v=20260630h"></script>
+  <script src="js/strategies.js?v=20260630h"></script>
+  <script src="js/backtest.js?v=20260630h"></script>
+  <script src="js/charts.js?v=20260630h"></script>
+  <script src="js/app.js?v=20260630h"></script>
 </body>
 </html>

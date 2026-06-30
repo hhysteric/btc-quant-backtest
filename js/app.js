@@ -59,6 +59,8 @@ syncAnalyzeSourceFields();
 
 // 对数刻度开关
 $("logScale").addEventListener("change", () => setLogScale($("logScale").checked));
+$("rollingLogScale").addEventListener("change", () => setRollingLog($("rollingLogScale").checked));
+$("analyzeLogScale").addEventListener("change", () => setAnalyzeLog($("analyzeLogScale").checked));
 
 // 手续费开关：勾选后费率输入框可编辑，否则禁用（两个视图各一）
 $("feeEnabled").addEventListener("change", () => {
