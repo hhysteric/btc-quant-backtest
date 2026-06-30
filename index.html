@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MA回测</title>
-  <link rel="stylesheet" href="css/style.css?v=20260630i" />
+  <link rel="stylesheet" href="css/style.css?v=20260630j" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -16,6 +16,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" data-view="backtest">策略回测</button>
       <button class="tab-btn" data-view="analyze">单参数回合分析</button>
+      <button class="tab-btn" data-view="cross">MA/EMA 交叉回合分析</button>
     </div>
   </header>
 
@@ -44,7 +45,7 @@
             </select>
           </label>
           <label>开始日期
-            <input id="startDate" type="date" value="2017-01-01" />
+            <input id="startDate" type="date" value="2010-01-01" />
           </label>
           <label>结束日期
             <input id="endDate" type="date" />
@@ -177,7 +178,7 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
             </select>
           </label>
           <label>开始日期
-            <input id="aStartDate" type="date" value="2017-01-01" />
+            <input id="aStartDate" type="date" value="2010-01-01" />
           </label>
           <label>结束日期
             <input id="aEndDate" type="date" />
@@ -255,17 +256,117 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
       </div>
     </section>
     </div>
+
+    <div id="crossView" class="view hidden">
+    <section class="panel">
+      <h2>1. 数据源</h2>
+      <div class="row">
+        <label>来源
+          <select id="xSource">
+            <option value="builtin" selected>内置 BTC 历史（2010 至今，自动补最新）</option>
+            <option value="api">Binance API</option>
+            <option value="file">本地 Excel / CSV（其他代币）</option>
+          </select>
+        </label>
+
+        <div id="xApiFields" class="inline">
+          <label>交易对
+            <input id="xSymbol" type="text" value="BTCUSDT" />
+          </label>
+          <label>周期
+            <select id="xInterval">
+              <option value="1d" selected>日线</option>
+              <option value="1w">周线</option>
+              <option value="1M">月线</option>
+            </select>
+          </label>
+          <label>开始日期
+            <input id="xStartDate" type="date" value="2010-01-01" />
+          </label>
+          <label>结束日期
+            <input id="xEndDate" type="date" />
+          </label>
+        </div>
+
+        <div id="xFileFields" class="inline hidden">
+          <label>选择文件 (.xlsx / .csv)
+            <input id="xFileInput" type="file" accept=".xlsx,.xls,.csv" />
+          </label>
+          <span class="hint">需含列：date, open, high, low, close（兼容中文表头）</span>
+        </div>
+      </div>
+      <button id="xLoadBtn">加载行情</button>
+      <span id="xDataStatus" class="status"></span>
+    </section>
+
+    <section class="panel">
+      <h2>2. MA/EMA 交叉回合分析</h2>
+      <p class="hint" style="margin:-8px 0 12px">用一条快线与一条慢线（各自可选 MA 或 EMA）交叉择时：快线上穿慢线（金叉）→ 买入；下穿（死叉）→ 卖出。逐回合统计每次进出的收益率。</p>
+      <div class="grid">
+        <label>快线类型
+          <select id="fastType">
+            <option value="ma" selected>MA</option>
+            <option value="ema">EMA</option>
+          </select>
+        </label>
+        <label>快线周期
+          <input id="fastPeriod" type="number" value="20" min="2" />
+        </label>
+        <label>慢线类型
+          <select id="slowType">
+            <option value="ma">MA</option>
+            <option value="ema" selected>EMA</option>
+          </select>
+        </label>
+        <label>慢线周期
+          <input id="slowPeriod" type="number" value="60" min="3" />
+        </label>
+        <label>初始资金 (USDT)
+          <input id="xInitialCash" type="number" value="10000" min="0" />
+        </label>
+        <label class="fee-toggle">
+          <span class="fee-row">
+            <input type="checkbox" id="xFeeEnabled" /> 收取手续费
+          </span>
+          <input id="xFeeRate" type="number" value="0.1" step="0.01" min="0" disabled />
+          <span class="hint">每笔买卖按成交额百分比扣除（%）</span>
+        </label>
+      </div>
+      <button id="crossBtn" disabled>分析</button>
+      <span id="crossStatus" class="status"></span>
+
+      <div id="crossResults" style="display:none">
+        <h3>整体表现</h3>
+        <div id="crossSummary"></div>
+        <h3>买卖点（K 线 + 快/慢均线 + 进出标注）</h3>
+        <div class="toggle-row">
+          <label class="log-toggle">
+            <input type="checkbox" id="crossLogScale" /> 对数刻度（价格 Y 轴）
+          </label>
+          <label class="log-toggle">
+            <input type="checkbox" id="crossBands" /> 标注连赢 / 连亏区间背景
+          </label>
+          <label class="log-toggle">
+            <input type="checkbox" id="crossBandsSingle" /> 含单次盈亏
+          </label>
+        </div>
+        <div id="crossChart" class="chart"></div>
+        <h3>逐回合收益明细</h3>
+        <div id="crossRoundsTable"></div>
+      </div>
+    </section>
+    </div>
   </main>
 
   <footer>
     <p>纯前端运行，数据与计算均在你的浏览器本地完成。仅供研究，不构成投资建议。</p>
   </footer>
 
-  <script src="js/indicators.js?v=20260630i"></script>
-  <script src="js/data.js?v=20260630i"></script>
-  <script src="js/strategies.js?v=20260630i"></script>
-  <script src="js/backtest.js?v=20260630i"></script>
-  <script src="js/charts.js?v=20260630i"></script>
-  <script src="js/app.js?v=20260630i"></script>
+  <script src="js/indicators.js?v=20260630j"></script>
+  <script src="js/data.js?v=20260630j"></script>
+  <script src="js/strategies.js?v=20260630j"></script>
+  <script src="js/backtest.js?v=20260630j"></script>
+  <script src="js/charts.js?v=20260630j"></script>
+  <script src="js/app.js?v=20260630j"></script>
 </body>
 </html>

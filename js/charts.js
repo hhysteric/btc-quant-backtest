@@ -4,6 +4,7 @@ let timingChartInstance = null;
 let dcaChartInstance = null;
 let _lastResult = null; // 供明细弹窗按 key 取回策略数据
 let _lastAnalyze = null; // 自定义参数回合分析结果（供主题切换重绘）
+let _lastCross = null;   // MA/EMA 交叉回合分析结果（供主题切换重绘）
 
 const COLORS = {
   best_ma: "#f7931a",
@@ -73,6 +74,7 @@ function rerenderAllCharts() {
     renderRollingChart(_lastResult);
   }
   if (_lastAnalyze) renderAnalyzeChart(_lastAnalyze);
+  if (_lastCross) renderCrossChart(_lastCross);
 }
 
 // 资产 Y 轴是否使用对数刻度（由页面开关控制）。
@@ -108,6 +110,23 @@ function setAnalyzeBands(on) {
 function setAnalyzeBandsSingle(on) {
   _analyzeBandsSingle = !!on;
   if (_lastAnalyze) renderAnalyzeChart(_lastAnalyze);
+}
+
+// MA/EMA 交叉板块的图表开关（与分析板块各自独立）。
+let _crossLog = false;
+let _crossBands = false;
+let _crossBandsSingle = false;
+function setCrossLog(on) {
+  _crossLog = !!on;
+  if (_lastCross) renderCrossChart(_lastCross);
+}
+function setCrossBands(on) {
+  _crossBands = !!on;
+  if (_lastCross) renderCrossChart(_lastCross);
+}
+function setCrossBandsSingle(on) {
+  _crossBandsSingle = !!on;
+  if (_lastCross) renderCrossChart(_lastCross);
 }
 function setTradeLog(on) {
   _tradeLog = !!on;
@@ -573,17 +592,27 @@ function renderRankTable(result) {
 }
 
 let analyzeChartInstance = null;
+let crossChartInstance = null;
 
 // 自定义参数回合分析：汇总卡片 + 买卖点图 + 逐回合表。
 function renderAnalyze(result) {
   _lastAnalyze = result;
   document.getElementById("analyzeResults").style.display = "block";
-  renderAnalyzeSummary(result);
+  renderAnalyzeSummary(result, "analyzeSummary");
   renderAnalyzeChart(result);
-  renderRoundsTable(result);
+  renderRoundsTable(result, "roundsTable");
 }
 
-function renderAnalyzeSummary(result) {
+// MA/EMA 交叉回合分析：与 renderAnalyze 同结构，渲染到 cross 容器、用 cross 开关。
+function renderCross(result) {
+  _lastCross = result;
+  document.getElementById("crossResults").style.display = "block";
+  renderAnalyzeSummary(result, "crossSummary");
+  renderCrossChart(result);
+  renderRoundsTable(result, "crossRoundsTable");
+}
+
+function renderAnalyzeSummary(result, containerId) {
   const s = result.summary;
   const cell = (label, valHtml) =>
     `<div class="summary-card"><span class="summary-label">${label}</span><span class="summary-val">${valHtml}</span></div>`;
@@ -603,7 +632,7 @@ function renderAnalyzeSummary(result) {
     ${cell("最佳回合", pct(s.maxRoundReturn))}
     ${cell("最差回合", pct(s.minRoundReturn))}
   </div>`;
-  document.getElementById("analyzeSummary").innerHTML = html;
+  document.getElementById(containerId).innerHTML = html;
 }
 
 // 按「回合收益（账户）」正负号把回合切分成连续同向区间：>0 连赢、<0 连亏、=0 单独成段。
@@ -640,10 +669,10 @@ function computeRoundStreaks(rounds) {
   return streaks;
 }
 
-function renderRoundsTable(result) {
+function renderRoundsTable(result, containerId) {
   const rounds = result.rounds;
   if (rounds.length === 0) {
-    document.getElementById("roundsTable").innerHTML =
+    document.getElementById(containerId).innerHTML =
       `<p class="hint">该参数在所选区间内无完整买卖回合（可能始终未触发进出）。</p>`;
     return;
   }
@@ -686,14 +715,39 @@ function renderRoundsTable(result) {
   });
 
   html += "</tbody></table>";
-  document.getElementById("roundsTable").innerHTML = html;
+  document.getElementById(containerId).innerHTML = html;
 }
 
 // 买卖点图：复用明细图的 K线 + 均线 + 进出标注模式。
 function renderAnalyzeChart(result) {
-  const el = document.getElementById("analyzeChart");
-  if (!el) return;
-  analyzeChartInstance = analyzeChartInstance || echarts.init(el);
+  analyzeChartInstance = renderRoundsChart({
+    elId: "analyzeChart",
+    instance: analyzeChartInstance,
+    result,
+    log: _analyzeLog,
+    bands: _analyzeBands,
+    bandsSingle: _analyzeBandsSingle,
+  });
+}
+
+// MA/EMA 交叉图：同一套回合图渲染，用 cross 容器与 cross 开关。
+function renderCrossChart(result) {
+  crossChartInstance = renderRoundsChart({
+    elId: "crossChart",
+    instance: crossChartInstance,
+    result,
+    log: _crossLog,
+    bands: _crossBands,
+    bandsSingle: _crossBandsSingle,
+  });
+}
+
+// 回合分析图内核：K线 + 均线（含未来延伸）+ ER 右轴 + 买卖标注 + 连赢/连亏背景带。
+// 由 analyze 与 cross 两板块共用，差异仅在容器 id、实例、三个开关。返回（可能新建的）实例。
+function renderRoundsChart({ elId, instance, result, log, bands, bandsSingle }) {
+  const el = document.getElementById(elId);
+  if (!el) return instance;
+  instance = instance || echarts.init(el);
 
   const candles = result.candles;
   const histDates = candles.map((c) => c.date);
@@ -771,12 +825,12 @@ function renderAnalyzeChart(result) {
 
   // 连赢/连亏区间背景带：每段从首回合「买入日」到末回合「卖出日」，连赢染绿、连亏染红。
   // 单次回合（长度 1）默认不染，勾选「含单次回合」后一并染色。
-  if (_analyzeBands && result.rounds && result.rounds.length) {
+  if (bands && result.rounds && result.rounds.length) {
     const streaks = computeRoundStreaks(result.rounds);
     const areas = [];
     for (const st of streaks) {
       if (st.s === 0) continue; // 零收益区间不染
-      if (st.len < 2 && !_analyzeBandsSingle) continue;
+      if (st.len < 2 && !bandsSingle) continue;
       const first = result.rounds[st.start];
       const last = result.rounds[st.start + st.len - 1];
       const isWin = st.s > 0;
@@ -802,7 +856,7 @@ function renderAnalyzeChart(result) {
     }
   }
 
-  analyzeChartInstance.setOption({
+  instance.setOption({
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
     legend: { textStyle: { color: THEME.legend }, top: 0 },
@@ -810,8 +864,8 @@ function renderAnalyzeChart(result) {
     xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis }, scale: true },
     yAxis: [
       {
-        type: _analyzeLog ? "log" : "value",
-        scale: !_analyzeLog,
+        type: log ? "log" : "value",
+        scale: !log,
         axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
         splitLine: { lineStyle: { color: THEME.grid } },
       },
@@ -827,7 +881,8 @@ function renderAnalyzeChart(result) {
     dataZoom: zoomConfig(0),
     series,
   }, true);
-  setTimeout(() => analyzeChartInstance && analyzeChartInstance.resize(), 50);
+  setTimeout(() => instance && instance.resize(), 50);
+  return instance;
 }
 
 function renderResults(result) {
@@ -845,4 +900,5 @@ window.addEventListener("resize", () => {
   if (dcaChartInstance) dcaChartInstance.resize();
   if (rollingChartInstance) rollingChartInstance.resize();
   if (analyzeChartInstance) analyzeChartInstance.resize();
+  if (crossChartInstance) crossChartInstance.resize();
 });

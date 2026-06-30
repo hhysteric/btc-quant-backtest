@@ -2,6 +2,7 @@
 
 let candles = null;        // 策略回测视图的行情
 let analyzeCandles = null; // 单参数回合分析视图的行情（独立加载）
+let crossCandles = null;   // MA/EMA 交叉回合分析视图的行情（独立加载）
 
 const $ = (id) => document.getElementById(id);
 
@@ -12,6 +13,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
     $("backtestView").classList.toggle("hidden", view !== "backtest");
     $("analyzeView").classList.toggle("hidden", view !== "analyze");
+    $("crossView").classList.toggle("hidden", view !== "cross");
     if (typeof rerenderAllCharts === "function") rerenderAllCharts();
   });
 });
@@ -36,6 +38,7 @@ $("themeToggle").addEventListener("click", () => {
 const _today = new Date().toISOString().slice(0, 10);
 $("endDate").value = _today;
 $("aEndDate").value = _today;
+$("xEndDate").value = _today;
 
 // 数据源切换：内置/API 显示 API 字段（内置也用日期范围裁剪），文件显示上传字段。
 // prefix 区分两个视图的元素 id（回测视图无前缀，分析视图前缀 "a"）。
@@ -52,10 +55,13 @@ function makeSyncSourceFields(prefix) {
 }
 const syncSourceFields = makeSyncSourceFields("");
 const syncAnalyzeSourceFields = makeSyncSourceFields("a");
+const syncCrossSourceFields = makeSyncSourceFields("x");
 $("source").addEventListener("change", syncSourceFields);
 $("aSource").addEventListener("change", syncAnalyzeSourceFields);
+$("xSource").addEventListener("change", syncCrossSourceFields);
 syncSourceFields();
 syncAnalyzeSourceFields();
+syncCrossSourceFields();
 
 // 对数刻度开关
 $("logScale").addEventListener("change", () => setLogScale($("logScale").checked));
@@ -71,12 +77,25 @@ $("analyzeBands").addEventListener("change", () => {
 $("analyzeBandsSingle").addEventListener("change", () => setAnalyzeBandsSingle($("analyzeBandsSingle").checked));
 $("analyzeBandsSingle").disabled = true;
 
+// 交叉板块的对数刻度 / 连赢连亏背景开关（与分析板块各自独立）。
+$("crossLogScale").addEventListener("change", () => setCrossLog($("crossLogScale").checked));
+$("crossBands").addEventListener("change", () => {
+  const on = $("crossBands").checked;
+  $("crossBandsSingle").disabled = !on;
+  setCrossBands(on);
+});
+$("crossBandsSingle").addEventListener("change", () => setCrossBandsSingle($("crossBandsSingle").checked));
+$("crossBandsSingle").disabled = true;
+
 // 手续费开关：勾选后费率输入框可编辑，否则禁用（两个视图各一）
 $("feeEnabled").addEventListener("change", () => {
   $("feeRate").disabled = !$("feeEnabled").checked;
 });
 $("aFeeEnabled").addEventListener("change", () => {
   $("aFeeRate").disabled = !$("aFeeEnabled").checked;
+});
+$("xFeeEnabled").addEventListener("change", () => {
+  $("xFeeRate").disabled = !$("xFeeEnabled").checked;
 });
 
 // 回合分析视图的单/双均线输入随本视图「均线模式」显隐
@@ -240,6 +259,59 @@ $("analyzeBtn").addEventListener("click", () => {
     } catch (err) {
       $("analyzeStatus").textContent = "失败：" + err.message;
       $("analyzeStatus").style.color = "#ef5350";
+    }
+  }, 30);
+});
+
+// 交叉视图：独立加载行情
+$("xLoadBtn").addEventListener("click", async () => {
+  $("xLoadBtn").disabled = true;
+  $("crossBtn").disabled = true;
+  setStatus("xDataStatus", "加载中…", false);
+  try {
+    crossCandles = await loadCandlesFor("x");
+    if (!crossCandles || crossCandles.length < 10) throw new Error("数据量过少，无法分析");
+    setStatus("xDataStatus", `已加载 ${crossCandles.length} 根 K 线（${crossCandles[0].date} ~ ${crossCandles[crossCandles.length - 1].date}）${srcNoteFor("x")}`, false);
+    $("crossBtn").disabled = false;
+  } catch (err) {
+    crossCandles = null;
+    setStatus("xDataStatus", "加载失败：" + err.message, true);
+  } finally {
+    $("xLoadBtn").disabled = false;
+  }
+});
+
+// MA/EMA 交叉回合分析
+$("crossBtn").addEventListener("click", () => {
+  if (!crossCandles) return;
+  $("crossStatus").textContent = "计算中…";
+  $("crossStatus").style.color = "#8b98a5";
+
+  setTimeout(() => {
+    try {
+      const cfg = {
+        fastType: $("fastType").value,
+        fastPeriod: parseInt($("fastPeriod").value),
+        slowType: $("slowType").value,
+        slowPeriod: parseInt($("slowPeriod").value),
+        initialCash: parseFloat($("xInitialCash").value) || 10000,
+        feeRate: $("xFeeEnabled").checked ? (parseFloat($("xFeeRate").value) || 0) / 100 : 0,
+      };
+      if (!cfg.fastPeriod || cfg.fastPeriod < 2) throw new Error("请填写有效的快线周期（≥2）");
+      if (!cfg.slowPeriod || cfg.slowPeriod < 2) throw new Error("请填写有效的慢线周期（≥2）");
+      if (cfg.fastPeriod >= cfg.slowPeriod) throw new Error("快线周期需小于慢线周期");
+
+      const t0 = performance.now();
+      const result = analyzeCross(crossCandles, cfg);
+      const ms = Math.round(performance.now() - t0);
+
+      renderCross(result);
+      $("crossStatus").textContent = `完成（${ms} ms，${result.summary.roundCount} 回合）`;
+      $("crossStatus").style.color = "#26a69a";
+      $("crossResults").scrollIntoView({ behavior: "smooth" });
+    } catch (err) {
+      $("crossStatus").textContent = "失败：" + err.message;
+      $("crossStatus").style.color = "#ef5350";
     }
   }, 30);
 });

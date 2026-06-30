@@ -175,32 +175,14 @@ function projectMaForward(closes, maFn, period, days) {
   return full.slice(closes.length); // 长度 = days
 }
 
-function analyzeParam(candles, cfg) {
-  const closes = candles.map((c) => c.close);
-  const maFn = cfg.maType === "ema" ? ema : sma;
-  const TYPE = cfg.maType.toUpperCase();
-  const feeRate = cfg.feeRate || 0;
-  const initialCash = cfg.initialCash || 10000;
-  const FUTURE_DAYS = 100;
+const ANALYZE_FUTURE_DAYS = 100;
 
-  let signals, maLines, erPeriod;
-  if (cfg.maMode === "double") {
-    const shortArr = maFn(closes, cfg.shortPeriod);
-    const longArr = maFn(closes, cfg.longPeriod);
-    signals = doubleMaSignals(shortArr, longArr);
-    maLines = [
-      { name: `${TYPE}${cfg.shortPeriod}`, data: shortArr, future: projectMaForward(closes, maFn, cfg.shortPeriod, FUTURE_DAYS) },
-      { name: `${TYPE}${cfg.longPeriod}`, data: longArr, future: projectMaForward(closes, maFn, cfg.longPeriod, FUTURE_DAYS) },
-    ];
-    erPeriod = cfg.longPeriod; // 双均线用长周期作为趋势效率的观察窗口
-  } else {
-    const arr = maFn(closes, cfg.singlePeriod);
-    signals = singleMaSignals(closes, arr);
-    maLines = [{ name: `${TYPE}${cfg.singlePeriod}`, data: arr, future: projectMaForward(closes, maFn, cfg.singlePeriod, FUTURE_DAYS) }];
-    erPeriod = cfg.singlePeriod;
-  }
+// 回合分析共用内核：给定持仓信号与两条/一条均线，跑择时回测、配对回合、算 ER 与未来延伸，
+// 产出与 analyzeParam/analyzeCross 一致的结果结构。供「单参数回合分析」与「MA/EMA 交叉」共用。
+function buildRoundsResult(candles, closes, signals, maLines, erPeriod, initialCash, feeRate, label) {
+  const FUTURE_DAYS = ANALYZE_FUTURE_DAYS;
 
-  // 趋势效率序列（窗口取均线周期），与 candles 等长；末值放入 summary。
+  // 趋势效率序列（窗口取观察周期），与 candles 等长；末值放入 summary。
   const erSeries = efficiencyRatio(closes, erPeriod);
   let erLast = null;
   for (let i = erSeries.length - 1; i >= 0; i--) {
@@ -269,12 +251,67 @@ function analyzeParam(candles, cfg) {
     maxRoundReturn: rets.length > 0 ? Math.max(...rets) : 0,
     minRoundReturn: rets.length > 0 ? Math.min(...rets) : 0,
     holdingOpen,
-    label: cfg.maMode === "double" ? `${TYPE}${cfg.shortPeriod}/${cfg.longPeriod}` : `${TYPE}${cfg.singlePeriod}`,
+    label,
     er: erLast,
     erPeriod,
   };
 
   return { stats, trades, rounds, summary, maLines, equity, candles, erSeries, futureDates, futureDays: FUTURE_DAYS };
+}
+
+function analyzeParam(candles, cfg) {
+  const closes = candles.map((c) => c.close);
+  const maFn = cfg.maType === "ema" ? ema : sma;
+  const TYPE = cfg.maType.toUpperCase();
+  const feeRate = cfg.feeRate || 0;
+  const initialCash = cfg.initialCash || 10000;
+  const FUTURE_DAYS = ANALYZE_FUTURE_DAYS;
+
+  let signals, maLines, erPeriod, label;
+  if (cfg.maMode === "double") {
+    const shortArr = maFn(closes, cfg.shortPeriod);
+    const longArr = maFn(closes, cfg.longPeriod);
+    signals = doubleMaSignals(shortArr, longArr);
+    maLines = [
+      { name: `${TYPE}${cfg.shortPeriod}`, data: shortArr, future: projectMaForward(closes, maFn, cfg.shortPeriod, FUTURE_DAYS) },
+      { name: `${TYPE}${cfg.longPeriod}`, data: longArr, future: projectMaForward(closes, maFn, cfg.longPeriod, FUTURE_DAYS) },
+    ];
+    erPeriod = cfg.longPeriod; // 双均线用长周期作为趋势效率的观察窗口
+    label = `${TYPE}${cfg.shortPeriod}/${cfg.longPeriod}`;
+  } else {
+    const arr = maFn(closes, cfg.singlePeriod);
+    signals = singleMaSignals(closes, arr);
+    maLines = [{ name: `${TYPE}${cfg.singlePeriod}`, data: arr, future: projectMaForward(closes, maFn, cfg.singlePeriod, FUTURE_DAYS) }];
+    erPeriod = cfg.singlePeriod;
+    label = `${TYPE}${cfg.singlePeriod}`;
+  }
+
+  return buildRoundsResult(candles, closes, signals, maLines, erPeriod, initialCash, feeRate, label);
+}
+
+// MA/EMA 交叉回合分析：快线与慢线各自可为 MA 或 EMA（如 MA20 × EMA60）。
+// 快线上穿慢线（金叉）→ 持币买入；下穿（死叉）→ 空仓卖出。复用回合分析全套展示。
+function analyzeCross(candles, cfg) {
+  const closes = candles.map((c) => c.close);
+  const fastFn = cfg.fastType === "ema" ? ema : sma;
+  const slowFn = cfg.slowType === "ema" ? ema : sma;
+  const FAST = cfg.fastType.toUpperCase();
+  const SLOW = cfg.slowType.toUpperCase();
+  const feeRate = cfg.feeRate || 0;
+  const initialCash = cfg.initialCash || 10000;
+  const FUTURE_DAYS = ANALYZE_FUTURE_DAYS;
+
+  const fastArr = fastFn(closes, cfg.fastPeriod);
+  const slowArr = slowFn(closes, cfg.slowPeriod);
+  const signals = doubleMaSignals(fastArr, slowArr); // 快>慢则持有
+  const maLines = [
+    { name: `${FAST}${cfg.fastPeriod}`, data: fastArr, future: projectMaForward(closes, fastFn, cfg.fastPeriod, FUTURE_DAYS) },
+    { name: `${SLOW}${cfg.slowPeriod}`, data: slowArr, future: projectMaForward(closes, slowFn, cfg.slowPeriod, FUTURE_DAYS) },
+  ];
+  const erPeriod = Math.max(cfg.fastPeriod, cfg.slowPeriod); // 趋势观察窗口取较长者
+  const label = `${FAST}${cfg.fastPeriod} × ${SLOW}${cfg.slowPeriod}`;
+
+  return buildRoundsResult(candles, closes, signals, maLines, erPeriod, initialCash, feeRate, label);
 }
 
 // 运行整套回测。返回所有结果供 UI 渲染。

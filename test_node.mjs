@@ -17,10 +17,10 @@ const sandbox = {};
 const fn = new Function(
   "module",
   code +
-    "\nObject.assign(module, { sma, ema, computeAhr999, backtestDCA, backtestAhr999, backtestBuyHold, runBacktest, analyzeParam });"
+    "\nObject.assign(module, { sma, ema, computeAhr999, backtestDCA, backtestAhr999, backtestBuyHold, runBacktest, analyzeParam, analyzeCross });"
 );
 fn(sandbox);
-const { runBacktest, computeAhr999, analyzeParam } = sandbox;
+const { runBacktest, computeAhr999, analyzeParam, analyzeCross } = sandbox;
 
 // 解析样例 CSV
 const csv = fs.readFileSync(path.join(__dirname, "sample_data.csv"), "utf8").trim().split("\n");
@@ -298,5 +298,47 @@ const anaFee = analyzeParam(candles, { maType: "ma", maMode: "single", singlePer
 if (anaFee.summary.finalEquity > ana.summary.finalEquity + 1e-6)
   throw new Error("收费后回合分析最终资产反而更高");
 console.log(`MA3 手续费效果：无费=$${Math.round(ana.summary.finalEquity)}  收费(0.1%)=$${Math.round(anaFee.summary.finalEquity)}`);
+
+// MA/EMA 交叉回合分析检查
+console.log("\n=== 交叉回合分析（MA2 × EMA5）===");
+const cross = analyzeCross(candles, { fastType: "ma", fastPeriod: 2, slowType: "ema", slowPeriod: 5, initialCash: 10000, feeRate: 0 });
+if (!Array.isArray(cross.rounds)) throw new Error("analyzeCross 未返回 rounds");
+if (cross.rounds.length === 0) throw new Error("MA2×EMA5 应产生至少一个回合");
+for (const r of cross.rounds) {
+  const expect = r.entryEquity > 0 ? r.exitEquity / r.entryEquity - 1 : 0;
+  if (Math.abs(expect - r.ret) > 1e-9) throw new Error(`交叉回合收益率口径不符：${r.entryDate}`);
+  if (!isFinite(r.ret) || !isFinite(r.priceChange)) throw new Error("交叉回合收益出现非有限值");
+  if (r.holdDays < 0) throw new Error("交叉回合持有天数为负");
+}
+const xSell = cross.trades.filter((t) => t.side === "sell").length;
+const xClosed = cross.rounds.filter((r) => !r.open).length;
+const xOpen = cross.rounds.filter((r) => r.open).length;
+if (xClosed !== xSell) throw new Error(`交叉已平仓回合(${xClosed}) != 卖出笔数(${xSell})`);
+if (xOpen > 1) throw new Error(`交叉持仓中回合应 ≤ 1，实际 ${xOpen}`);
+if (cross.summary.winRate < 0 || cross.summary.winRate > 1) throw new Error("交叉 winRate 越界");
+// 两条均线，一 MA 一 EMA
+if (cross.maLines.length !== 2) throw new Error("交叉应返回两条均线");
+const names = cross.maLines.map((l) => l.name);
+if (!names.some((n) => n.startsWith("MA")) || !names.some((n) => n.startsWith("EMA")))
+  throw new Error(`交叉两条均线应分别含 MA 与 EMA，实际 ${names.join(", ")}`);
+if (cross.summary.label !== "MA2 × EMA5") throw new Error(`交叉 label 应为 "MA2 × EMA5"，实际 "${cross.summary.label}"`);
+// ER 序列与 candles 等长、非空值∈[0,1]
+if (!Array.isArray(cross.erSeries) || cross.erSeries.length !== candles.length)
+  throw new Error("交叉 erSeries 长度应与 candles 等长");
+let xErNonNull = 0;
+for (const v of cross.erSeries) {
+  if (v == null) continue;
+  if (!isFinite(v) || v < 0 || v > 1) throw new Error(`交叉 ER 越界或非有限：${v}`);
+  xErNonNull++;
+}
+if (xErNonNull === 0) throw new Error("交叉 ER 序列全空");
+if (cross.summary.erPeriod !== 5) throw new Error("MA2×EMA5 的 erPeriod 应为 max(2,5)=5");
+console.log(`MA2×EMA5：回合数=${cross.summary.roundCount}（持仓中 ${xOpen}） 胜率=${(cross.summary.winRate * 100).toFixed(1)}% 均线=${names.join(", ")} ER非空=${xErNonNull}`);
+
+// 反向（EMA20 × MA60 方向可调）与手续费效果
+const crossFee = analyzeCross(candles, { fastType: "ma", fastPeriod: 2, slowType: "ema", slowPeriod: 5, initialCash: 10000, feeRate: 0.001 });
+if (crossFee.summary.finalEquity > cross.summary.finalEquity + 1e-6)
+  throw new Error("交叉收费后最终资产反而更高");
+console.log(`MA2×EMA5 手续费效果：无费=$${Math.round(cross.summary.finalEquity)}  收费(0.1%)=$${Math.round(crossFee.summary.finalEquity)}`);
 
 console.log("\n✓ 健全性检查通过");
