@@ -555,30 +555,55 @@ function renderRoundsTable(result) {
 
   // 按「回合收益（账户）」正负号切分连续区间：>0 连赢、<0 连亏、=0 单独成段。
   const sign = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
-  let html = `<table><thead><tr>
-    <th>回合</th><th>买入日</th><th>买入价</th><th>卖出日</th><th>卖出价</th>
-    <th>持有天数</th><th>价格涨跌</th><th>回合收益（账户）</th><th>状态</th>
-    </tr></thead><tbody>`;
 
-  // 连续区间的合计行：复利乘积 ∏(1+ret)−1，跨多个同向回合。
-  const streakRow = (run, startIdx) => {
-    const compound = run.reduce((acc, r) => acc * (1 + r.ret), 1) - 1;
-    const s = sign(run[0].ret);
-    const label = s > 0 ? `连赢 ${run.length} 回合合计` : `连亏 ${run.length} 回合合计`;
-    const cls = s > 0 ? "pos" : "neg";
-    return `<tr class="streak-row">
-      <td colspan="7" style="text-align:right;color:var(--muted)">↳ 回合 ${startIdx + 1}–${startIdx + run.length} ${label}</td>
-      <td class="${cls}"><strong>${pct(compound)}</strong></td>
-      <td></td>
-    </tr>`;
-  };
-
+  // 先把回合分段成连续同向区间，记下每段起止与复利合计 ∏(1+ret)−1。
+  const streaks = []; // { start, len, s, compound }
   let run = [];
   let runStart = 0;
-  const flush = () => {
-    if (run.length >= 2) html += streakRow(run, runStart);
+  const closeRun = () => {
+    if (run.length > 0) {
+      streaks.push({
+        start: runStart,
+        len: run.length,
+        s: sign(run[0].ret),
+        compound: run.reduce((acc, r) => acc * (1 + r.ret), 1) - 1,
+      });
+    }
     run = [];
   };
+  rounds.forEach((r, i) => {
+    const s = sign(r.ret);
+    if (run.length === 0 || (s !== 0 && sign(run[0].ret) === s)) {
+      if (run.length === 0) runStart = i;
+      run.push(r);
+    } else {
+      closeRun();
+      runStart = i;
+      run = [r];
+    }
+  });
+  closeRun();
+
+  // 每个回合 index → 它所属 streak 的「分组标记单元格」HTML（仅区间首行输出带 rowspan 的格子；
+  // 长度 1 的区间显示占位，>=2 的区间合并单元格显示复利合计）。
+  const groupCell = new Array(rounds.length).fill("");
+  for (const st of streaks) {
+    if (st.len >= 2) {
+      const cls = st.s > 0 ? "pos" : "neg";
+      const label = st.s > 0 ? `连赢 ${st.len}` : `连亏 ${st.len}`;
+      groupCell[st.start] =
+        `<td rowspan="${st.len}" class="streak-cell ${cls}">` +
+        `<div class="streak-tag">${label}</div>` +
+        `<div class="streak-sum"><strong>${pct(st.compound)}</strong></div></td>`;
+    } else {
+      groupCell[st.start] = `<td class="streak-cell"><span class="muted-dash">—</span></td>`;
+    }
+  }
+
+  let html = `<table><thead><tr>
+    <th>回合</th><th>买入日</th><th>买入价</th><th>卖出日</th><th>卖出价</th>
+    <th>持有天数</th><th>价格涨跌</th><th>回合收益（账户）</th><th>状态</th><th>连赢/连亏区间</th>
+    </tr></thead><tbody>`;
 
   rounds.forEach((r, i) => {
     html += `<tr class="${r.open ? "best" : ""}">
@@ -590,20 +615,9 @@ function renderRoundsTable(result) {
       <td>${r.holdDays}</td>
       <td>${pct(r.priceChange)}</td>
       <td>${pct(r.ret)}</td>
-      <td>${r.open ? "持仓中" : "已平仓"}</td>
+      <td>${r.open ? "持仓中" : "已平仓"}</td>${groupCell[i]}
     </tr>`;
-
-    const s = sign(r.ret);
-    if (run.length === 0 || (s !== 0 && sign(run[0].ret) === s)) {
-      if (run.length === 0) runStart = i;
-      run.push(r);
-    } else {
-      flush();
-      runStart = i;
-      run = [r];
-    }
   });
-  flush();
 
   html += "</tbody></table>";
   document.getElementById("roundsTable").innerHTML = html;

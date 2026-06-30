@@ -141,8 +141,15 @@ th { color: var(--muted); font-weight: 600; }
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 .best { background: rgba(247, 147, 26, 0.12); }
-.streak-row { background: rgba(139, 152, 165, 0.08); font-size: 12px; }
-.streak-row td { border-bottom: 1px solid var(--border); }
+.streak-cell {
+  text-align: center;
+  vertical-align: middle;
+  background: rgba(139, 152, 165, 0.06);
+  border-left: 1px solid var(--border);
+}
+.streak-tag { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.streak-sum { font-size: 13px; }
+.muted-dash { color: var(--muted); opacity: 0.5; }
 
 .detail-link { color: var(--accent); text-decoration: none; }
 .detail-link:hover { text-decoration: underline; }
