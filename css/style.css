@@ -129,6 +129,8 @@ button:hover:not(:disabled) { filter: brightness(1.08); }
   font-size: 13px; color: var(--muted); margin: 0 0 10px; cursor: pointer;
 }
 .log-toggle input { min-width: auto; width: auto; cursor: pointer; }
+.toggle-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-bottom: 10px; }
+.toggle-row .log-toggle { margin: 0; }
 
 .fee-toggle .fee-row { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .fee-toggle .fee-row input { min-width: auto; width: auto; cursor: pointer; }

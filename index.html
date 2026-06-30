@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MA回测</title>
-  <link rel="stylesheet" href="css/style.css?v=20260630h" />
+  <link rel="stylesheet" href="css/style.css?v=20260630i" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -238,9 +238,17 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
         <h3>整体表现</h3>
         <div id="analyzeSummary"></div>
         <h3>买卖点（K 线 + 均线 + 进出标注）</h3>
-        <label class="log-toggle">
-          <input type="checkbox" id="analyzeLogScale" /> 对数刻度（价格 Y 轴）
-        </label>
+        <div class="toggle-row">
+          <label class="log-toggle">
+            <input type="checkbox" id="analyzeLogScale" /> 对数刻度（价格 Y 轴）
+          </label>
+          <label class="log-toggle">
+            <input type="checkbox" id="analyzeBands" /> 标注连赢 / 连亏区间背景
+          </label>
+          <label class="log-toggle">
+            <input type="checkbox" id="analyzeBandsSingle" /> 含单次盈亏
+          </label>
+        </div>
         <div id="analyzeChart" class="chart"></div>
         <h3>逐回合收益明细</h3>
         <div id="roundsTable"></div>
@@ -253,11 +261,11 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
     <p>纯前端运行，数据与计算均在你的浏览器本地完成。仅供研究，不构成投资建议。</p>
   </footer>
 
-  <script src="js/indicators.js?v=20260630h"></script>
-  <script src="js/data.js?v=20260630h"></script>
-  <script src="js/strategies.js?v=20260630h"></script>
-  <script src="js/backtest.js?v=20260630h"></script>
-  <script src="js/charts.js?v=20260630h"></script>
-  <script src="js/app.js?v=20260630h"></script>
+  <script src="js/indicators.js?v=20260630i"></script>
+  <script src="js/data.js?v=20260630i"></script>
+  <script src="js/strategies.js?v=20260630i"></script>
+  <script src="js/backtest.js?v=20260630i"></script>
+  <script src="js/charts.js?v=20260630i"></script>
+  <script src="js/app.js?v=20260630i"></script>
 </body>
 </html>

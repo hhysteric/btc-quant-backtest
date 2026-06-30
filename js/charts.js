@@ -97,6 +97,18 @@ function setAnalyzeLog(on) {
   _analyzeLog = !!on;
   if (_lastAnalyze) renderAnalyzeChart(_lastAnalyze);
 }
+
+// 分析图「连赢/连亏区间背景」开关：是否绘制背景带，以及是否包含单次回合（长度 1）。
+let _analyzeBands = false;       // 是否绘制连赢/连亏背景带
+let _analyzeBandsSingle = false; // 是否把单次盈亏（长度 1 的区间）也涂背景
+function setAnalyzeBands(on) {
+  _analyzeBands = !!on;
+  if (_lastAnalyze) renderAnalyzeChart(_lastAnalyze);
+}
+function setAnalyzeBandsSingle(on) {
+  _analyzeBandsSingle = !!on;
+  if (_lastAnalyze) renderAnalyzeChart(_lastAnalyze);
+}
 function setTradeLog(on) {
   _tradeLog = !!on;
   if (_lastTradeStrategy) renderTradeChart(_lastTradeStrategy);
@@ -594,19 +606,12 @@ function renderAnalyzeSummary(result) {
   document.getElementById("analyzeSummary").innerHTML = html;
 }
 
-function renderRoundsTable(result) {
-  const rounds = result.rounds;
-  if (rounds.length === 0) {
-    document.getElementById("roundsTable").innerHTML =
-      `<p class="hint">该参数在所选区间内无完整买卖回合（可能始终未触发进出）。</p>`;
-    return;
-  }
-
-  // 按「回合收益（账户）」正负号切分连续区间：>0 连赢、<0 连亏、=0 单独成段。
+// 按「回合收益（账户）」正负号把回合切分成连续同向区间：>0 连赢、<0 连亏、=0 单独成段。
+// 返回 [{ start, len, s, compound }]，start 为回合下标、compound 为复利合计 ∏(1+ret)−1。
+// 表格分组列与图上背景带共用此分段，确保两者口径一致。
+function computeRoundStreaks(rounds) {
   const sign = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
-
-  // 先把回合分段成连续同向区间，记下每段起止与复利合计 ∏(1+ret)−1。
-  const streaks = []; // { start, len, s, compound }
+  const streaks = [];
   let run = [];
   let runStart = 0;
   const closeRun = () => {
@@ -632,6 +637,18 @@ function renderRoundsTable(result) {
     }
   });
   closeRun();
+  return streaks;
+}
+
+function renderRoundsTable(result) {
+  const rounds = result.rounds;
+  if (rounds.length === 0) {
+    document.getElementById("roundsTable").innerHTML =
+      `<p class="hint">该参数在所选区间内无完整买卖回合（可能始终未触发进出）。</p>`;
+    return;
+  }
+
+  const streaks = computeRoundStreaks(rounds);
 
   // 每个回合 index → 它所属 streak 的「分组标记单元格」HTML（仅区间首行输出带 rowspan 的格子；
   // 长度 1 的区间显示占位，>=2 的区间合并单元格显示复利合计）。
@@ -750,6 +767,39 @@ function renderAnalyzeChart(result) {
       label: { color: THEME.axis, formatter: "今日", position: "insideEndTop", fontSize: 11 },
       data: [{ xAxis: histDates[nHist - 1] }],
     };
+  }
+
+  // 连赢/连亏区间背景带：每段从首回合「买入日」到末回合「卖出日」，连赢染绿、连亏染红。
+  // 单次回合（长度 1）默认不染，勾选「含单次回合」后一并染色。
+  if (_analyzeBands && result.rounds && result.rounds.length) {
+    const streaks = computeRoundStreaks(result.rounds);
+    const areas = [];
+    for (const st of streaks) {
+      if (st.s === 0) continue; // 零收益区间不染
+      if (st.len < 2 && !_analyzeBandsSingle) continue;
+      const first = result.rounds[st.start];
+      const last = result.rounds[st.start + st.len - 1];
+      const isWin = st.s > 0;
+      const label = (st.len >= 2 ? (isWin ? `连赢 ${st.len}` : `连亏 ${st.len}`) : (isWin ? "盈" : "亏")) +
+        ` ${(st.compound * 100).toFixed(0)}%`;
+      areas.push([
+        {
+          xAxis: first.entryDate,
+          itemStyle: { color: isWin ? "rgba(38,166,154,0.14)" : "rgba(239,83,80,0.14)" },
+          label: {
+            show: true,
+            color: isWin ? TRADE_COLORS.buy : TRADE_COLORS.sell,
+            fontSize: 10,
+            position: "insideTop",
+            formatter: label,
+          },
+        },
+        { xAxis: last.exitDate },
+      ]);
+    }
+    if (areas.length) {
+      series[0].markArea = { silent: true, data: areas };
+    }
   }
 
   analyzeChartInstance.setOption({

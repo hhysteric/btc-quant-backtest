@@ -62,6 +62,15 @@ $("logScale").addEventListener("change", () => setLogScale($("logScale").checked
 $("rollingLogScale").addEventListener("change", () => setRollingLog($("rollingLogScale").checked));
 $("analyzeLogScale").addEventListener("change", () => setAnalyzeLog($("analyzeLogScale").checked));
 
+// 连赢/连亏区间背景开关；「含单次盈亏」仅在背景开启时有意义，随主开关启用/禁用。
+$("analyzeBands").addEventListener("change", () => {
+  const on = $("analyzeBands").checked;
+  $("analyzeBandsSingle").disabled = !on;
+  setAnalyzeBands(on);
+});
+$("analyzeBandsSingle").addEventListener("change", () => setAnalyzeBandsSingle($("analyzeBandsSingle").checked));
+$("analyzeBandsSingle").disabled = true;
+
 // 手续费开关：勾选后费率输入框可编辑，否则禁用（两个视图各一）
 $("feeEnabled").addEventListener("change", () => {
   $("feeRate").disabled = !$("feeEnabled").checked;
