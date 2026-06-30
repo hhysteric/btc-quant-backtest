@@ -345,41 +345,59 @@ $("oLoadBtn").addEventListener("click", async () => {
   }
 });
 
-// 运行交叉策略寻优
-$("optimizeBtn").addEventListener("click", () => {
+// 运行交叉策略寻优（异步分批，带进度条，避免大计算量卡死页面）
+$("optimizeBtn").addEventListener("click", async () => {
   if (!optimizeCandles) return;
-  $("optimizeStatus").textContent = "计算中…";
-  $("optimizeStatus").style.color = "#8b98a5";
-
-  setTimeout(() => {
-    try {
-      const cfg = {
-        initialCash: parseFloat($("oInitialCash").value) || 10000,
-        fastMin: parseInt($("oFastMin").value) || 5,
-        fastMax: parseInt($("oFastMax").value) || 60,
-        fastStep: parseInt($("oFastStep").value) || 5,
-        slowMin: parseInt($("oSlowMin").value) || 20,
-        slowMax: parseInt($("oSlowMax").value) || 200,
-        slowStep: parseInt($("oSlowStep").value) || 10,
-        feeRate: $("oFeeEnabled").checked ? (parseFloat($("oFeeRate").value) || 0) / 100 : 0,
-      };
-      if (cfg.fastMax <= cfg.fastMin) throw new Error("快线周期上限需大于下限");
-      if (cfg.slowMax <= cfg.slowMin) throw new Error("慢线周期上限需大于下限");
-      if (cfg.fastStep < 1 || cfg.slowStep < 1) throw new Error("步长需 ≥ 1");
-      if (cfg.slowMax <= cfg.fastMin) throw new Error("慢线周期范围需高于快线下限（否则无有效配对）");
-
-      const t0 = performance.now();
-      const result = runCrossBacktest(optimizeCandles, cfg);
-      const ms = Math.round(performance.now() - t0);
-
-      renderOptimize(result);
-      const bestLabel = result.best && result.best.cross ? result.best.cross.label : "无";
-      $("optimizeStatus").textContent = `完成（${ms} ms，最优 ${bestLabel}）`;
-      $("optimizeStatus").style.color = "#26a69a";
-      $("optimizeResults").scrollIntoView({ behavior: "smooth" });
-    } catch (err) {
-      $("optimizeStatus").textContent = "失败：" + err.message;
-      $("optimizeStatus").style.color = "#ef5350";
+  const setProgress = (frac, label) => {
+    $("optimizeProgressBar").style.width = (frac * 100).toFixed(1) + "%";
+    if (label) {
+      $("optimizeStatus").textContent = `${label}… ${Math.round(frac * 100)}%`;
+      $("optimizeStatus").style.color = "#8b98a5";
     }
-  }, 30);
+  };
+
+  let cfg;
+  try {
+    cfg = {
+      initialCash: parseFloat($("oInitialCash").value) || 10000,
+      fastMin: parseInt($("oFastMin").value) || 5,
+      fastMax: parseInt($("oFastMax").value) || 60,
+      fastStep: parseInt($("oFastStep").value) || 5,
+      slowMin: parseInt($("oSlowMin").value) || 20,
+      slowMax: parseInt($("oSlowMax").value) || 200,
+      slowStep: parseInt($("oSlowStep").value) || 10,
+      feeRate: $("oFeeEnabled").checked ? (parseFloat($("oFeeRate").value) || 0) / 100 : 0,
+    };
+    if (cfg.fastMax <= cfg.fastMin) throw new Error("快线周期上限需大于下限");
+    if (cfg.slowMax <= cfg.slowMin) throw new Error("慢线周期上限需大于下限");
+    if (cfg.fastStep < 1 || cfg.slowStep < 1) throw new Error("步长需 ≥ 1");
+    if (cfg.slowMax <= cfg.fastMin) throw new Error("慢线周期范围需高于快线下限（否则无有效配对）");
+  } catch (err) {
+    $("optimizeStatus").textContent = "失败：" + err.message;
+    $("optimizeStatus").style.color = "#ef5350";
+    return;
+  }
+
+  // 计算期间禁用按钮、显示进度条
+  $("optimizeBtn").disabled = true;
+  $("optimizeProgress").classList.remove("hidden");
+  setProgress(0, "计算中");
+
+  try {
+    const t0 = performance.now();
+    const result = await runCrossBacktest(optimizeCandles, cfg, setProgress);
+    const ms = Math.round(performance.now() - t0);
+
+    renderOptimize(result);
+    const bestLabel = result.best && result.best.cross ? result.best.cross.label : "无";
+    $("optimizeStatus").textContent = `完成（${ms} ms，最优 ${bestLabel}）`;
+    $("optimizeStatus").style.color = "#26a69a";
+    $("optimizeResults").scrollIntoView({ behavior: "smooth" });
+  } catch (err) {
+    $("optimizeStatus").textContent = "失败：" + err.message;
+    $("optimizeStatus").style.color = "#ef5350";
+  } finally {
+    $("optimizeProgress").classList.add("hidden");
+    $("optimizeBtn").disabled = false;
+  }
 });

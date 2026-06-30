@@ -316,7 +316,8 @@ function analyzeCross(candles, cfg) {
 
 // MA/EMA 交叉策略寻优：固定一组「快线类型 × 慢线类型」，遍历快/慢周期范围找最优。
 // fast 与 slow 各自可为 'ma' 或 'ema'，互不限制。跳过 fast>=slow 的无效配对。
-function optimizeCrossPair(candles, closes, fastType, slowType, cfg) {
+// ctx 可选：{ onStep(done,total), yielder } —— 提供时按批让出主线程并回报进度（异步路径用）。
+async function optimizeCrossPair(candles, closes, fastType, slowType, cfg, ctx) {
   const fastFn = fastType === "ema" ? ema : sma;
   const slowFn = slowType === "ema" ? ema : sma;
   const FAST = fastType.toUpperCase();
@@ -329,13 +330,17 @@ function optimizeCrossPair(candles, closes, fastType, slowType, cfg) {
 
   const feeRate = cfg.feeRate || 0;
   const results = [];
+  let done = 0;
+  const total = fastPeriods.length * slowPeriods.length;
   for (const f of fastPeriods) {
     for (const s of slowPeriods) {
+      done++;
       if (f >= s) continue; // 快线周期须小于慢线周期
       const sig = doubleMaSignals(getFast(f), getSlow(s));
       const { equity, trades, stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
       results.push({ label: `${FAST}${f}/${SLOW}${s}`, params: { fast: f, slow: s }, equity, trades, stats });
     }
+    if (ctx) { ctx.onStep && ctx.onStep(done, total); await ctx.yielder(); }
   }
   results.sort((a, b) => b.stats.finalEquity - a.stats.finalEquity);
 
@@ -351,7 +356,8 @@ function optimizeCrossPair(candles, closes, fastType, slowType, cfg) {
 
 // Rolling 4Y（交叉版）：仅对全局最优组合做窗口寻优，记录每个时点窗口内最优快/慢周期。
 // 复用 windowTimingReturnDouble；用快线类型作为返回 key，使 renderRollingChart 画出短/长两条线。
-function rollingCross4Y(candles, closes, cfg, bestCombo) {
+// ctx 可选：{ onStep(done,total), yielder } —— 提供时每批 K 线让出主线程并回报进度（异步路径用）。
+async function rollingCross4Y(candles, closes, cfg, bestCombo, ctx) {
   const n = candles.length;
   const fastType = bestCombo.fastType, slowType = bestCombo.slowType;
   const fastFn = fastType === "ema" ? ema : sma;
@@ -370,26 +376,32 @@ function rollingCross4Y(candles, closes, cfg, bestCombo) {
   const longPeriods = new Array(n).fill(null);
   const labels = new Array(n).fill(null);
 
+  // 每处理 BATCH 根 K 线让出一次主线程（异步路径）。窗口越大单根越慢，批小些更跟手。
+  const BATCH = 60;
   let lo = 0;
   for (let i = 0; i < n; i++) {
     while (candles[i].time - candles[lo].time > winMs) lo++;
-    if (candles[i].time - candles[lo].time < winMs * 0.95) continue;
-
-    let bestRet = -Infinity, bestF = null, bestS = null, bestLabel = null;
-    for (const f of fastPeriods) {
-      for (const s of slowPeriods) {
-        if (f >= s) continue;
-        const r = windowTimingReturnDouble(closes, fastArrs[f], slowArrs[s], lo, i, feeRate);
-        if (r != null && r > bestRet) {
-          bestRet = r; bestF = f; bestS = s; bestLabel = `${FAST}${f}/${SLOW}${s}`;
+    if (candles[i].time - candles[lo].time >= winMs * 0.95) {
+      let bestRet = -Infinity, bestF = null, bestS = null, bestLabel = null;
+      for (const f of fastPeriods) {
+        for (const s of slowPeriods) {
+          if (f >= s) continue;
+          const r = windowTimingReturnDouble(closes, fastArrs[f], slowArrs[s], lo, i, feeRate);
+          if (r != null && r > bestRet) {
+            bestRet = r; bestF = f; bestS = s; bestLabel = `${FAST}${f}/${SLOW}${s}`;
+          }
         }
       }
+      if (bestRet > -Infinity) {
+        returns[i] = bestRet;
+        shortPeriods[i] = bestF;
+        longPeriods[i] = bestS;
+        labels[i] = bestLabel;
+      }
     }
-    if (bestRet > -Infinity) {
-      returns[i] = bestRet;
-      shortPeriods[i] = bestF;
-      longPeriods[i] = bestS;
-      labels[i] = bestLabel;
+    if (ctx && (i % BATCH === BATCH - 1 || i === n - 1)) {
+      ctx.onStep && ctx.onStep(i + 1, n);
+      await ctx.yielder();
     }
   }
   const out = { dates: candles.map((c) => c.date), windowYears: ROLLING_WINDOW_YEARS };
@@ -399,15 +411,30 @@ function rollingCross4Y(candles, closes, cfg, bestCombo) {
 
 // 运行交叉策略寻优整套：四种线型组合（MA×MA / MA×EMA / EMA×MA / EMA×EMA）各自寻优排行，
 // 取全局最优组合画资产曲线与 Rolling 4Y，叠加买入持有基准。
-function runCrossBacktest(candles, cfg) {
+// 异步分批：寻优与 Rolling 两阶段都按批让出主线程，避免大计算量卡死页面。
+// onProgress(fraction0to1, phaseLabel) 可选：用于驱动进度条。不传则用瞬时 yielder，仍可在 Node 中 await。
+async function runCrossBacktest(candles, cfg, onProgress) {
   const closes = candles.map((c) => c.close);
   const feeRate = cfg.feeRate || 0;
   const out = { candles, strategies: [], rankings: {}, best: {} };
 
+  // 让出主线程：浏览器用宏任务（setTimeout 0）确保能重绘进度条；Node 下也是即时 resolve。
+  const yielder = () => new Promise((resolve) =>
+    (typeof setTimeout === "function" ? setTimeout(resolve, 0) : resolve())
+  );
+  // 进度划分：四组合寻优占前 70%，Rolling 占后 30%（Rolling 单根更重但批内静默推进）。
+  const OPT_SHARE = 0.7;
+  const report = (frac, label) => onProgress && onProgress(Math.max(0, Math.min(1, frac)), label);
+
   const combos = [["ma", "ma"], ["ma", "ema"], ["ema", "ma"], ["ema", "ema"]];
   let globalBest = null, bestCombo = null;
-  for (const [ft, st] of combos) {
-    const opt = optimizeCrossPair(candles, closes, ft, st, cfg);
+  for (let ci = 0; ci < combos.length; ci++) {
+    const [ft, st] = combos[ci];
+    const ctx = {
+      yielder,
+      onStep: (done, total) => report((ci + done / total) / combos.length * OPT_SHARE, `寻优 ${ft.toUpperCase()}×${st.toUpperCase()}`),
+    };
+    const opt = await optimizeCrossPair(candles, closes, ft, st, cfg, ctx);
     out.rankings[`${ft}x${st}`] = opt.results;
     if (opt.best && (!globalBest || opt.best.stats.finalEquity > globalBest.stats.finalEquity)) {
       globalBest = opt.best;
@@ -432,7 +459,16 @@ function runCrossBacktest(candles, cfg) {
   const bh = backtestBuyHold(candles, closes, cfg.initialCash, feeRate);
   out.strategies.push({ name: "买入持有（基准）", key: "buyhold", equity: bh.equity, trades: bh.trades, stats: bh.stats, kind: "timing" });
 
-  out.rolling = bestCombo ? rollingCross4Y(candles, closes, cfg, bestCombo) : { dates: candles.map((c) => c.date), windowYears: ROLLING_WINDOW_YEARS };
+  if (bestCombo) {
+    const rollCtx = {
+      yielder,
+      onStep: (done, total) => report(OPT_SHARE + done / total * (1 - OPT_SHARE), "Rolling 4Y"),
+    };
+    out.rolling = await rollingCross4Y(candles, closes, cfg, bestCombo, rollCtx);
+  } else {
+    out.rolling = { dates: candles.map((c) => c.date), windowYears: ROLLING_WINDOW_YEARS };
+  }
+  report(1, "完成");
   return out;
 }
 

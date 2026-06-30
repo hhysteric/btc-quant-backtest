@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MA回测</title>
-  <link rel="stylesheet" href="css/style.css?v=20260630l" />
+  <link rel="stylesheet" href="css/style.css?v=20260630m" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -435,6 +435,9 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
       </div>
       <button id="optimizeBtn" disabled>运行回测</button>
       <span id="optimizeStatus" class="status"></span>
+      <div id="optimizeProgress" class="progress hidden">
+        <div id="optimizeProgressBar" class="progress-bar"></div>
+      </div>
     </section>
 
     <section class="panel" id="optimizeResults" style="display:none">
@@ -463,11 +466,11 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
     <p>纯前端运行，数据与计算均在你的浏览器本地完成。仅供研究，不构成投资建议。</p>
   </footer>
 
-  <script src="js/indicators.js?v=20260630l"></script>
-  <script src="js/data.js?v=20260630l"></script>
-  <script src="js/strategies.js?v=20260630l"></script>
-  <script src="js/backtest.js?v=20260630l"></script>
-  <script src="js/charts.js?v=20260630l"></script>
-  <script src="js/app.js?v=20260630l"></script>
+  <script src="js/indicators.js?v=20260630m"></script>
+  <script src="js/data.js?v=20260630m"></script>
+  <script src="js/strategies.js?v=20260630m"></script>
+  <script src="js/backtest.js?v=20260630m"></script>
+  <script src="js/charts.js?v=20260630m"></script>
+  <script src="js/app.js?v=20260630m"></script>
 </body>
 </html>

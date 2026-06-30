@@ -120,6 +120,20 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 button:hover:not(:disabled) { filter: brightness(1.08); }
 
 .status { margin-left: 12px; font-size: 13px; color: var(--muted); }
+.progress {
+  margin-top: 12px;
+  height: 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
 .hint { font-size: 12px; color: var(--muted); align-self: center; }
 .hidden { display: none !important; }
 
