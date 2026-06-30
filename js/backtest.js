@@ -14,40 +14,42 @@ function optimizeMa(candles, closes, type, mode, cfg) {
   const cache = {};
   const getMa = (p) => (cache[p] || (cache[p] = maFn(closes, p)));
 
+  // 只保留各参数的轻量摘要（label/params/stats）入排行；equity/trades 数组很大，
+  // 全部参数（双均线模式配对数可上万）一起留会撑爆内存导致页面崩溃，最优一份事后重算。
   const results = [];
 
   const feeRate = cfg.feeRate || 0;
   if (mode === "single") {
     for (const p of periods) {
       const sig = singleMaSignals(closes, getMa(p));
-      const { equity, trades, stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
-      results.push({ label: `${type.toUpperCase()}${p}`, params: { p }, equity, trades, stats });
+      const { stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
+      results.push({ label: `${type.toUpperCase()}${p}`, params: { p }, stats });
     }
   } else {
     for (let i = 0; i < periods.length; i++) {
       for (let j = i + 1; j < periods.length; j++) {
         const short = periods[i], long = periods[j];
         const sig = doubleMaSignals(getMa(short), getMa(long));
-        const { equity, trades, stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
-        results.push({
-          label: `${type.toUpperCase()}${short}/${long}`,
-          params: { short, long },
-          equity,
-          trades,
-          stats,
-        });
+        const { stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
+        results.push({ label: `${type.toUpperCase()}${short}/${long}`, params: { short, long }, stats });
       }
     }
   }
 
   results.sort((a, b) => b.stats.finalEquity - a.stats.finalEquity);
 
-  // 仅为最优结果附上其所用均线序列（供明细图绘制），避免为所有结果存数组。
+  // 取排行第一，重算其 equity/trades（单次回测，开销极小）+ 附均线序列供资产曲线与明细图。
   const best = results[0];
   if (best) {
     if (mode === "single") {
+      const re = backtestTiming(candles, closes, cfg.initialCash, singleMaSignals(closes, getMa(best.params.p)), feeRate);
+      best.equity = re.equity;
+      best.trades = re.trades;
       best.maLines = [{ name: best.label, data: getMa(best.params.p) }];
     } else {
+      const re = backtestTiming(candles, closes, cfg.initialCash, doubleMaSignals(getMa(best.params.short), getMa(best.params.long)), feeRate);
+      best.equity = re.equity;
+      best.trades = re.trades;
       best.maLines = [
         { name: `${type.toUpperCase()}${best.params.short}`, data: getMa(best.params.short) },
         { name: `${type.toUpperCase()}${best.params.long}`, data: getMa(best.params.long) },
@@ -329,6 +331,8 @@ async function optimizeCrossPair(candles, closes, fastType, slowType, cfg, ctx) 
   const getSlow = (p) => (slowCache[p] || (slowCache[p] = slowFn(closes, p)));
 
   const feeRate = cfg.feeRate || 0;
+  // 只保留各配对的轻量摘要（label/params/stats）入排行；equity/trades 数组很大，
+  // 全部组合 × 全部配对一起留会撑爆内存导致页面崩溃，故仅缓存当前最优一份。
   const results = [];
   let done = 0;
   const total = fastPeriods.length * slowPeriods.length;
@@ -337,15 +341,20 @@ async function optimizeCrossPair(candles, closes, fastType, slowType, cfg, ctx) 
       done++;
       if (f >= s) continue; // 快线周期须小于慢线周期
       const sig = doubleMaSignals(getFast(f), getSlow(s));
-      const { equity, trades, stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
-      results.push({ label: `${FAST}${f}/${SLOW}${s}`, params: { fast: f, slow: s }, equity, trades, stats });
+      const { stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
+      results.push({ label: `${FAST}${f}/${SLOW}${s}`, params: { fast: f, slow: s }, stats });
     }
     if (ctx) { ctx.onStep && ctx.onStep(done, total); await ctx.yielder(); }
   }
   results.sort((a, b) => b.stats.finalEquity - a.stats.finalEquity);
 
+  // 取排行第一，重算其 equity/trades（单次回测，开销极小）供资产曲线与明细图使用。
   const best = results[0];
   if (best) {
+    const sig = doubleMaSignals(getFast(best.params.fast), getSlow(best.params.slow));
+    const re = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
+    best.equity = re.equity;
+    best.trades = re.trades;
     best.maLines = [
       { name: `${FAST}${best.params.fast}`, data: getFast(best.params.fast) },
       { name: `${SLOW}${best.params.slow}`, data: getSlow(best.params.slow) },
