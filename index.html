@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BTC 行情量化回测</title>
-  <link rel="stylesheet" href="css/style.css?v=20260630" />
+  <link rel="stylesheet" href="css/style.css?v=20260630b" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -83,13 +83,20 @@
           <input id="periodMin" type="number" value="5" min="2" />
         </label>
         <label>周期遍历上限
-          <input id="periodMax" type="number" value="120" min="3" />
+          <input id="periodMax" type="number" value="250" min="3" />
         </label>
         <label>周期步长
-          <input id="periodStep" type="number" value="5" min="1" />
+          <input id="periodStep" type="number" value="1" min="1" />
         </label>
         <label>ahr999 定投阈值
           <input id="ahrThreshold" type="number" value="1.2" step="0.05" min="0" />
+        </label>
+        <label class="fee-toggle">
+          <span class="fee-row">
+            <input type="checkbox" id="feeEnabled" /> 收取手续费
+          </span>
+          <input id="feeRate" type="number" value="0.1" step="0.01" min="0" disabled />
+          <span class="hint">每笔买卖按成交额百分比扣除（%）</span>
         </label>
       </div>
       <button id="runBtn" disabled>运行回测</button>
@@ -133,7 +140,7 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
       <div id="rankTable"></div>
 
       <h3>Rolling 4Y 最优均线周期变动</h3>
-      <p class="hint" style="margin:-4px 0 8px">每个时间点回看过去 4 年，在当前周期范围内逐根寻优，纵轴为该窗口内收益最大的 MA/EMA 周期（如某日 MA35、数月后变 MA110）。双均线模式画短/长两条线（虚线为长周期）。悬停可看对应窗口收益率。窗口不足 4 年的早期区间不绘制。</p>
+      <p class="hint" style="margin:-4px 0 8px">每个时间点回看过去 4 年，在当前周期范围内逐根寻优，左轴为该窗口内收益最大的 MA/EMA 周期（如某日 MA35、数月后变 MA110），右轴叠加 BTC 价格走势便于对照。双均线模式画短/长两条线（虚线为长周期）。悬停可看对应窗口收益率。窗口不足 4 年的早期区间不绘制。</p>
       <div id="rollingChart" class="chart"></div>
     </section>
   </main>
@@ -142,11 +149,11 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
     <p>纯前端运行，数据与计算均在你的浏览器本地完成。仅供研究，不构成投资建议。</p>
   </footer>
 
-  <script src="js/indicators.js?v=20260630"></script>
-  <script src="js/data.js?v=20260630"></script>
-  <script src="js/strategies.js?v=20260630"></script>
-  <script src="js/backtest.js?v=20260630"></script>
-  <script src="js/charts.js?v=20260630"></script>
-  <script src="js/app.js?v=20260630"></script>
+  <script src="js/indicators.js?v=20260630b"></script>
+  <script src="js/data.js?v=20260630b"></script>
+  <script src="js/strategies.js?v=20260630b"></script>
+  <script src="js/backtest.js?v=20260630b"></script>
+  <script src="js/charts.js?v=20260630b"></script>
+  <script src="js/app.js?v=20260630b"></script>
 </body>
 </html>

@@ -110,6 +110,10 @@ button:hover:not(:disabled) { filter: brightness(1.08); }
 }
 .log-toggle input { min-width: auto; width: auto; cursor: pointer; }
 
+.fee-toggle .fee-row { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.fee-toggle .fee-row input { min-width: auto; width: auto; cursor: pointer; }
+.fee-toggle input[type="number"]:disabled { opacity: 0.5; }
+
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--border); }
 th:first-child, td:first-child { text-align: left; }

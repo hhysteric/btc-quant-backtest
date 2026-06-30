@@ -39,6 +39,11 @@ syncSourceFields();
 // 对数刻度开关
 $("logScale").addEventListener("change", () => setLogScale($("logScale").checked));
 
+// 手续费开关：勾选后费率输入框可编辑，否则禁用
+$("feeEnabled").addEventListener("change", () => {
+  $("feeRate").disabled = !$("feeEnabled").checked;
+});
+
 function setDataStatus(msg, isError) {
   const el = $("dataStatus");
   el.textContent = msg;
@@ -102,9 +107,11 @@ $("runBtn").addEventListener("click", () => {
         maType: $("maType").value,
         maMode: $("maMode").value,
         periodMin: parseInt($("periodMin").value) || 5,
-        periodMax: parseInt($("periodMax").value) || 120,
-        periodStep: parseInt($("periodStep").value) || 5,
+        periodMax: parseInt($("periodMax").value) || 250,
+        periodStep: parseInt($("periodStep").value) || 1,
         ahrThreshold: parseFloat($("ahrThreshold").value) || 1.2,
+        // 手续费：勾选才生效，输入为百分比（0.1 = 0.1%），转成小数费率
+        feeRate: $("feeEnabled").checked ? (parseFloat($("feeRate").value) || 0) / 100 : 0,
       };
       if (cfg.periodMax <= cfg.periodMin) throw new Error("周期上限需大于下限");
 

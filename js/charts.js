@@ -14,6 +14,9 @@ const COLORS = {
   btc: "#5c6b7a",
 };
 
+// Rolling 图专用配色：MA/EMA 区分度更高（橙 vs 青蓝），并单列 BTC 价格色。
+const ROLLING_COLORS = { ma: "#f7931a", ema: "#29b6f6", btc: "#8b98a5" };
+
 // 主题相关颜色：从 CSS 变量读取，随深/浅色切换。图表配色据此刷新。
 const THEME = { axis: "#8b98a5", grid: "#2a3441", legend: "#e6edf3" };
 function refreshThemeColors() {
@@ -374,7 +377,7 @@ function renderRollingChart(result) {
     if (!r[type]) continue;
     const tr = r[type];
     const TYPE = type.toUpperCase();
-    const color = type === "ma" ? COLORS.best_ma : COLORS.best_ema;
+    const color = ROLLING_COLORS[type];
     labelMap[type] = tr.labels;
     retMap[type] = tr.returns;
 
@@ -384,6 +387,7 @@ function renderRollingChart(result) {
         type: "line",
         step: "end",
         showSymbol: false,
+        yAxisIndex: 0,
         lineStyle: { width: 2, color },
         itemStyle: { color },
         data: tr.periods.map((v) => (v == null ? null : v)),
@@ -394,6 +398,7 @@ function renderRollingChart(result) {
         type: "line",
         step: "end",
         showSymbol: false,
+        yAxisIndex: 0,
         lineStyle: { width: 2, color },
         itemStyle: { color },
         data: tr.shortPeriods.map((v) => (v == null ? null : v)),
@@ -403,6 +408,7 @@ function renderRollingChart(result) {
         type: "line",
         step: "end",
         showSymbol: false,
+        yAxisIndex: 0,
         lineStyle: { width: 1.5, type: "dashed", color },
         itemStyle: { color },
         data: tr.longPeriods.map((v) => (v == null ? null : v)),
@@ -410,7 +416,20 @@ function renderRollingChart(result) {
     }
   }
 
-  const hasData = series.some((s) => s.data.some((v) => v != null));
+  const hasPeriodData = series.some((s) => s.data.some((v) => v != null));
+
+  // 叠加 BTC 收盘价走势（右 Y 轴），用于与最优周期变动对照。
+  series.push({
+    name: "BTC 价格",
+    type: "line",
+    showSymbol: false,
+    yAxisIndex: 1,
+    lineStyle: { width: 1, color: ROLLING_COLORS.btc },
+    itemStyle: { color: ROLLING_COLORS.btc },
+    data: result.candles.map((c) => c.close),
+  });
+
+  const hasData = hasPeriodData;
   rollingChartInstance.setOption({
     backgroundColor: "transparent",
     title: hasData ? undefined : {
@@ -427,6 +446,10 @@ function renderRollingChart(result) {
         // 同一 type 的短/长两条线只展示一次 label + 收益率
         const seen = new Set();
         for (const p of params) {
+          if (p.seriesName === "BTC 价格") {
+            html += `<br/>${p.marker}BTC：${p.value == null ? "-" : money(p.value)}`;
+            continue;
+          }
           const type = p.seriesName.includes("EMA") ? "ema" : "ma";
           if (seen.has(type)) continue;
           seen.add(type);
@@ -440,15 +463,25 @@ function renderRollingChart(result) {
       },
     },
     legend: { textStyle: { color: THEME.legend }, top: 0 },
-    grid: { left: 88, right: 24, top: 40, bottom: 50 },
+    grid: { left: 88, right: 70, top: 40, bottom: 50 },
     xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis } },
-    yAxis: {
-      type: "value",
-      name: "最优周期",
-      nameTextStyle: { color: THEME.axis },
-      axisLabel: { color: THEME.axis },
-      splitLine: { lineStyle: { color: THEME.grid } },
-    },
+    yAxis: [
+      {
+        type: "value",
+        name: "最优周期",
+        nameTextStyle: { color: THEME.axis },
+        axisLabel: { color: THEME.axis },
+        splitLine: { lineStyle: { color: THEME.grid } },
+      },
+      {
+        type: "value",
+        name: "BTC",
+        position: "right",
+        nameTextStyle: { color: ROLLING_COLORS.btc },
+        axisLabel: { color: ROLLING_COLORS.btc, formatter: (v) => money(v) },
+        splitLine: { show: false },
+      },
+    ],
     dataZoom: zoomConfig(0),
     series,
   }, true);

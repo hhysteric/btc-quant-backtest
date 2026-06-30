@@ -192,4 +192,29 @@ if (sr2.shortPeriods.at(-1) >= sr2.longPeriods.at(-1))
 if (sr2.periods.at(-1) != null) throw new Error("双均线模式 periods 应留空");
 console.log(`双均线末点：短=${sr2.shortPeriods.at(-1)} 长=${sr2.longPeriods.at(-1)} 参数=${sr2.labels.at(-1)}`);
 
+// 手续费检查：开启费率后，各策略最终资产应不高于无费情形（多数应更低）。
+console.log("\n=== 手续费效果检查 ===");
+const feeRes = runBacktest(candles, { ...cfg, feeRate: 0.001 });
+const byKey = (res, k) => res.strategies.find((s) => s.key === k);
+for (const key of ["buyhold", "weekly", "monthly", "ahr999"]) {
+  const noFee = byKey(result, key).stats.finalEquity;
+  const withFee = byKey(feeRes, key).stats.finalEquity;
+  if (withFee > noFee + 1e-6)
+    throw new Error(`${key} 收费后资产(${withFee}) 反而高于无费(${noFee})`);
+  console.log(`${key.padEnd(10)} 无费=$${Math.round(noFee)}  收费(0.1%)=$${Math.round(withFee)}`);
+}
+// 择时类有进出的策略，收费应严格降低买入持有最终资产
+const bhNoFee = byKey(result, "buyhold").stats.finalEquity;
+const bhFee = byKey(feeRes, "buyhold").stats.finalEquity;
+if (!(bhFee < bhNoFee)) throw new Error("买入持有收费后应略低于无费");
+// trade.amount 仍是成交毛额（价格×数量在 buyhold 首笔成立）
+const bhTrade = byKey(feeRes, "buyhold").trades[0];
+if (Math.abs(bhTrade.amount - cfg.initialCash) > 1e-6)
+  throw new Error("buyhold 成交额应等于初始资金（毛额）");
+// 收费后实际买到的币量应少于无费
+const coinNoFee = byKey(result, "buyhold").trades[0].qty;
+const coinFee = bhTrade.qty;
+if (!(coinFee < coinNoFee)) throw new Error("收费后买入币量应更少");
+console.log(`买入持有：无费买入 ${coinNoFee.toFixed(6)} BTC，收费买入 ${coinFee.toFixed(6)} BTC`);
+
 console.log("\n✓ 健全性检查通过");

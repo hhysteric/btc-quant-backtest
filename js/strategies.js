@@ -33,7 +33,8 @@ function computeStats(candles, equity, buyCount, intervalDays) {
 
 // 全仓择时：信号为 true 持币，false 空仓。基于均线交叉。
 // mode: 'single' 价格 vs 均线；'double' 短均线 vs 长均线。
-function backtestTiming(candles, closes, initialCash, signals) {
+// feeRate：每笔买卖按成交额扣除的手续费率（如 0.001 = 0.1%）。
+function backtestTiming(candles, closes, initialCash, signals, feeRate = 0) {
   const equity = new Array(candles.length);
   const trades = [];
   let cash = initialCash;
@@ -44,8 +45,8 @@ function backtestTiming(candles, closes, initialCash, signals) {
     const price = closes[i];
     const sig = signals[i];
     if (sig === true && cash > 0) {
-      const qty = cash / price;
       const amount = cash;
+      const qty = (cash * (1 - feeRate)) / price; // 手续费从买入额中扣除
       coin = qty;
       cash = 0;
       buyCount++;
@@ -56,7 +57,7 @@ function backtestTiming(candles, closes, initialCash, signals) {
     } else if (sig === false && coin > 0) {
       const qty = coin;
       const amount = coin * price;
-      cash = amount;
+      cash = amount * (1 - feeRate); // 卖出所得扣手续费
       coin = 0;
       trades.push({
         date: candles[i].date, side: "sell", price, qty, amount,
@@ -81,7 +82,7 @@ function doubleMaSignals(shortArr, longArr) {
 }
 
 // 周期性定投（不卖出）。periodType: 'week' | 'month'。
-function backtestDCA(candles, closes, amount, periodType) {
+function backtestDCA(candles, closes, amount, periodType, feeRate = 0) {
   const equity = new Array(candles.length);
   const investedSeries = new Array(candles.length);
   const trades = [];
@@ -101,7 +102,7 @@ function backtestDCA(candles, closes, amount, periodType) {
     }
     if (key !== lastKey) {
       const price = closes[i];
-      const qty = amount / price;
+      const qty = (amount * (1 - feeRate)) / price; // 手续费从每次定投额中扣除
       coin += qty;
       spent += amount;
       buys++;
@@ -146,7 +147,7 @@ function computeAhr999(candles, closes) {
 
 // ahr999 定投：每个定投周期到来时，若 ahr999 < 阈值则买入。
 // 默认按「日」定投（与指数日频一致），阈值越低买得越多（线性加权）。
-function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr) {
+function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr, feeRate = 0) {
   const equity = new Array(candles.length);
   const investedSeries = new Array(candles.length);
   const trades = [];
@@ -166,7 +167,7 @@ function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr) {
         const weight = Math.min(3, Math.max(1, threshold / Math.max(ahr, 0.1)));
         const amt = baseAmount * weight;
         const price = closes[i];
-        const qty = amt / price;
+        const qty = (amt * (1 - feeRate)) / price; // 手续费从买入额中扣除
         coin += qty;
         spent += amt;
         buys++;
@@ -187,12 +188,12 @@ function backtestAhr999(candles, closes, baseAmount, threshold, ahrArr) {
 }
 
 // 买入持有基准：首根全仓买入。
-function backtestBuyHold(candles, closes, initialCash) {
-  const coin = initialCash / closes[0];
+function backtestBuyHold(candles, closes, initialCash, feeRate = 0) {
+  const coin = (initialCash * (1 - feeRate)) / closes[0];
   const equity = closes.map((c) => coin * c);
   const trades = [{
     date: candles[0].date, side: "buy", price: closes[0], qty: coin, amount: initialCash,
-    coinAfter: coin, cashAfter: 0, equityAfter: initialCash,
+    coinAfter: coin, cashAfter: 0, equityAfter: coin * closes[0],
   }];
   return { equity, trades, stats: computeStats(candles, equity, 1, 1) };
 }

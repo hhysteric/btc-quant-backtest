@@ -16,10 +16,11 @@ function optimizeMa(candles, closes, type, mode, cfg) {
 
   const results = [];
 
+  const feeRate = cfg.feeRate || 0;
   if (mode === "single") {
     for (const p of periods) {
       const sig = singleMaSignals(closes, getMa(p));
-      const { equity, trades, stats } = backtestTiming(candles, closes, cfg.initialCash, sig);
+      const { equity, trades, stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
       results.push({ label: `${type.toUpperCase()}${p}`, params: { p }, equity, trades, stats });
     }
   } else {
@@ -27,7 +28,7 @@ function optimizeMa(candles, closes, type, mode, cfg) {
       for (let j = i + 1; j < periods.length; j++) {
         const short = periods[i], long = periods[j];
         const sig = doubleMaSignals(getMa(short), getMa(long));
-        const { equity, trades, stats } = backtestTiming(candles, closes, cfg.initialCash, sig);
+        const { equity, trades, stats } = backtestTiming(candles, closes, cfg.initialCash, sig, feeRate);
         results.push({
           label: `${type.toUpperCase()}${short}/${long}`,
           params: { short, long },
@@ -70,6 +71,7 @@ function rollingBestForType(candles, closes, type, cfg) {
   const maArrs = {};
   for (const p of periods) maArrs[p] = maFn(closes, p);
 
+  const feeRate = cfg.feeRate || 0;
   const winMs = ROLLING_WINDOW_YEARS * 365 * DAY_MS;
   const returns = new Array(n).fill(null);
   // 单均线：bestPeriods 存单值；双均线：shortPeriods/longPeriods 存短长两值。
@@ -88,13 +90,13 @@ function rollingBestForType(candles, closes, type, cfg) {
     let bestRet = -Infinity, bestLabel = null, bestP = null, bestShort = null, bestLong = null;
     if (single) {
       for (const p of periods) {
-        const r = windowTimingReturn(closes, maArrs[p], lo, i);
+        const r = windowTimingReturn(closes, maArrs[p], lo, i, feeRate);
         if (r != null && r > bestRet) { bestRet = r; bestP = p; bestLabel = `${type.toUpperCase()}${p}`; }
       }
     } else {
       for (let a = 0; a < periods.length; a++) {
         for (let b = a + 1; b < periods.length; b++) {
-          const r = windowTimingReturnDouble(closes, maArrs[periods[a]], maArrs[periods[b]], lo, i);
+          const r = windowTimingReturnDouble(closes, maArrs[periods[a]], maArrs[periods[b]], lo, i, feeRate);
           if (r != null && r > bestRet) {
             bestRet = r; bestShort = periods[a]; bestLong = periods[b];
             bestLabel = `${type.toUpperCase()}${periods[a]}/${periods[b]}`;
@@ -115,27 +117,27 @@ function rollingBestForType(candles, closes, type, cfg) {
 
 // 在 [lo, hi] 窗口内、用单均线信号跑一次满仓择时，返回总收益率。
 // 起始资金任意（用 1），收益率与资金无关。
-function windowTimingReturn(closes, maArr, lo, hi) {
+function windowTimingReturn(closes, maArr, lo, hi, feeRate = 0) {
   let cash = 1, coin = 0;
   for (let i = lo; i <= hi; i++) {
     const m = maArr[i];
     if (m == null) continue;
     const price = closes[i];
-    if (price > m && cash > 0) { coin = cash / price; cash = 0; }
-    else if (price < m && coin > 0) { cash = coin * price; coin = 0; }
+    if (price > m && cash > 0) { coin = (cash * (1 - feeRate)) / price; cash = 0; }
+    else if (price < m && coin > 0) { cash = coin * price * (1 - feeRate); coin = 0; }
   }
   const end = cash + coin * closes[hi];
   return end - 1; // 起始 1 → 收益率
 }
 
-function windowTimingReturnDouble(closes, shortArr, longArr, lo, hi) {
+function windowTimingReturnDouble(closes, shortArr, longArr, lo, hi, feeRate = 0) {
   let cash = 1, coin = 0;
   for (let i = lo; i <= hi; i++) {
     const s = shortArr[i], l = longArr[i];
     if (s == null || l == null) continue;
     const price = closes[i];
-    if (s > l && cash > 0) { coin = cash / price; cash = 0; }
-    else if (s < l && coin > 0) { cash = coin * price; coin = 0; }
+    if (s > l && cash > 0) { coin = (cash * (1 - feeRate)) / price; cash = 0; }
+    else if (s < l && coin > 0) { cash = coin * price * (1 - feeRate); coin = 0; }
   }
   const end = cash + coin * closes[hi];
   return end - 1;
@@ -151,6 +153,7 @@ function rollingBest4Y(candles, closes, cfg) {
 // 运行整套回测。返回所有结果供 UI 渲染。
 function runBacktest(candles, cfg) {
   const closes = candles.map((c) => c.close);
+  const feeRate = cfg.feeRate || 0;
   const out = { candles, strategies: [], rankings: {}, best: {} };
 
   // MA / EMA 寻优
@@ -171,17 +174,17 @@ function runBacktest(candles, cfg) {
   }
 
   // 对比策略
-  const weekly = backtestDCA(candles, closes, cfg.dcaAmount, "week");
+  const weekly = backtestDCA(candles, closes, cfg.dcaAmount, "week", feeRate);
   out.strategies.push({ name: "周定投", key: "weekly", equity: weekly.equity, investedSeries: weekly.investedSeries, trades: weekly.trades, stats: weekly.stats, kind: "dca" });
 
-  const monthly = backtestDCA(candles, closes, cfg.dcaAmount, "month");
+  const monthly = backtestDCA(candles, closes, cfg.dcaAmount, "month", feeRate);
   out.strategies.push({ name: "月定投", key: "monthly", equity: monthly.equity, investedSeries: monthly.investedSeries, trades: monthly.trades, stats: monthly.stats, kind: "dca" });
 
   const ahrArr = computeAhr999(candles, closes);
-  const ahr = backtestAhr999(candles, closes, cfg.dcaAmount, cfg.ahrThreshold, ahrArr);
+  const ahr = backtestAhr999(candles, closes, cfg.dcaAmount, cfg.ahrThreshold, ahrArr, feeRate);
   out.strategies.push({ name: `ahr999 定投（<${cfg.ahrThreshold}）`, key: "ahr999", equity: ahr.equity, investedSeries: ahr.investedSeries, trades: ahr.trades, stats: ahr.stats, kind: "dca" });
 
-  const bh = backtestBuyHold(candles, closes, cfg.initialCash);
+  const bh = backtestBuyHold(candles, closes, cfg.initialCash, feeRate);
   out.strategies.push({ name: "买入持有（基准）", key: "buyhold", equity: bh.equity, trades: bh.trades, stats: bh.stats, kind: "timing" });
 
   out.ahr999 = ahrArr;
