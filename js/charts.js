@@ -3,6 +3,7 @@
 let timingChartInstance = null;
 let dcaChartInstance = null;
 let _lastResult = null; // 供明细弹窗按 key 取回策略数据
+let _lastAnalyze = null; // 自定义参数回合分析结果（供主题切换重绘）
 
 const COLORS = {
   best_ma: "#f7931a",
@@ -35,6 +36,7 @@ function rerenderAllCharts() {
     renderDcaChart(_lastResult);
     renderRollingChart(_lastResult);
   }
+  if (_lastAnalyze) renderAnalyzeChart(_lastAnalyze);
 }
 
 // 资产 Y 轴是否使用对数刻度（由页面开关控制）。
@@ -509,6 +511,125 @@ function renderRankTable(result) {
   document.getElementById("rankTable").innerHTML = blocks.join("");
 }
 
+let analyzeChartInstance = null;
+
+// 自定义参数回合分析：汇总卡片 + 买卖点图 + 逐回合表。
+function renderAnalyze(result) {
+  _lastAnalyze = result;
+  document.getElementById("analyzeResults").style.display = "block";
+  renderAnalyzeSummary(result);
+  renderAnalyzeChart(result);
+  renderRoundsTable(result);
+}
+
+function renderAnalyzeSummary(result) {
+  const s = result.summary;
+  const cell = (label, valHtml) =>
+    `<div class="summary-card"><span class="summary-label">${label}</span><span class="summary-val">${valHtml}</span></div>`;
+  const holdNote = s.holdingOpen ? "（末回合持仓中）" : "";
+  const html = `<div class="summary-cards">
+    ${cell("参数", s.label)}
+    ${cell("总回报率", pct(s.totalReturn))}
+    ${cell("最终资产", money(s.finalEquity))}
+    ${cell("最大回撤", `<span class="neg">-${(s.maxDrawdown * 100).toFixed(1)}%</span>`)}
+    ${cell("回合数", `${s.roundCount}${holdNote}`)}
+    ${cell("胜率（已平仓）", (s.winRate * 100).toFixed(1) + "%")}
+    ${cell("平均回合收益", pct(s.avgRoundReturn))}
+    ${cell("最佳回合", pct(s.maxRoundReturn))}
+    ${cell("最差回合", pct(s.minRoundReturn))}
+  </div>`;
+  document.getElementById("analyzeSummary").innerHTML = html;
+}
+
+function renderRoundsTable(result) {
+  let html = `<table><thead><tr>
+    <th>回合</th><th>买入日</th><th>买入价</th><th>卖出日</th><th>卖出价</th>
+    <th>持有天数</th><th>价格涨跌</th><th>回合收益（账户）</th><th>状态</th>
+    </tr></thead><tbody>`;
+  result.rounds.forEach((r, i) => {
+    html += `<tr class="${r.open ? "best" : ""}">
+      <td>${i + 1}</td>
+      <td>${r.entryDate}</td>
+      <td>${money2(r.entryPrice)}</td>
+      <td>${r.exitDate}</td>
+      <td>${money2(r.exitPrice)}</td>
+      <td>${r.holdDays}</td>
+      <td>${pct(r.priceChange)}</td>
+      <td>${pct(r.ret)}</td>
+      <td>${r.open ? "持仓中" : "已平仓"}</td>
+    </tr>`;
+  });
+  html += "</tbody></table>";
+  if (result.rounds.length === 0) {
+    html = `<p class="hint">该参数在所选区间内无完整买卖回合（可能始终未触发进出）。</p>`;
+  }
+  document.getElementById("roundsTable").innerHTML = html;
+}
+
+// 买卖点图：复用明细图的 K线 + 均线 + 进出标注模式。
+function renderAnalyzeChart(result) {
+  const el = document.getElementById("analyzeChart");
+  if (!el) return;
+  analyzeChartInstance = analyzeChartInstance || echarts.init(el);
+
+  const candles = result.candles;
+  const dates = candles.map((c) => c.date);
+  const ohlc = candles.map((c) => [c.open, c.close, c.low, c.high]);
+
+  const series = [{
+    name: "BTC",
+    type: "candlestick",
+    data: ohlc,
+    itemStyle: {
+      color: "#26a69a", color0: "#ef5350",
+      borderColor: "#26a69a", borderColor0: "#ef5350",
+    },
+  }];
+
+  const maColors = ["#f7931a", "#42a5f5"];
+  (result.maLines || []).forEach((line, i) => {
+    series.push({
+      name: line.name,
+      type: "line",
+      showSymbol: false,
+      lineStyle: { width: 1.5, color: maColors[i % maColors.length] },
+      itemStyle: { color: maColors[i % maColors.length] },
+      data: line.data.map((v) => (v == null ? null : +v.toFixed(2))),
+    });
+  });
+
+  const dateIndex = new Map(dates.map((d, i) => [d, i]));
+  const markData = result.trades.map((t) => ({
+    name: t.side === "buy" ? "买入" : "卖出",
+    coord: [t.date, t.price],
+    value: t.side === "buy" ? "B" : "S",
+    itemStyle: { color: t.side === "buy" ? "#26a69a" : "#ef5350" },
+    symbol: t.side === "buy" ? "arrow" : "pin",
+    symbolRotate: t.side === "buy" ? 0 : 180,
+  })).filter((m) => dateIndex.has(m.coord[0]));
+  series[0].markPoint = {
+    symbolSize: 22,
+    label: { color: "#fff", fontSize: 10, formatter: (p) => p.value },
+    data: markData,
+  };
+
+  analyzeChartInstance.setOption({
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+    legend: { textStyle: { color: THEME.legend }, top: 0 },
+    grid: { left: 88, right: 24, top: 32, bottom: 50 },
+    xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis }, scale: true },
+    yAxis: {
+      scale: true,
+      axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
+      splitLine: { lineStyle: { color: THEME.grid } },
+    },
+    dataZoom: zoomConfig(0),
+    series,
+  }, true);
+  setTimeout(() => analyzeChartInstance && analyzeChartInstance.resize(), 50);
+}
+
 function renderResults(result) {
   _lastResult = result;
   document.getElementById("resultsPanel").style.display = "block";
@@ -523,4 +644,5 @@ window.addEventListener("resize", () => {
   if (timingChartInstance) timingChartInstance.resize();
   if (dcaChartInstance) dcaChartInstance.resize();
   if (rollingChartInstance) rollingChartInstance.resize();
+  if (analyzeChartInstance) analyzeChartInstance.resize();
 });

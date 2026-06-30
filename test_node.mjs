@@ -17,10 +17,10 @@ const sandbox = {};
 const fn = new Function(
   "module",
   code +
-    "\nObject.assign(module, { sma, ema, computeAhr999, backtestDCA, backtestAhr999, backtestBuyHold, runBacktest });"
+    "\nObject.assign(module, { sma, ema, computeAhr999, backtestDCA, backtestAhr999, backtestBuyHold, runBacktest, analyzeParam });"
 );
 fn(sandbox);
-const { runBacktest, computeAhr999 } = sandbox;
+const { runBacktest, computeAhr999, analyzeParam } = sandbox;
 
 // 解析样例 CSV
 const csv = fs.readFileSync(path.join(__dirname, "sample_data.csv"), "utf8").trim().split("\n");
@@ -216,5 +216,43 @@ const coinNoFee = byKey(result, "buyhold").trades[0].qty;
 const coinFee = bhTrade.qty;
 if (!(coinFee < coinNoFee)) throw new Error("收费后买入币量应更少");
 console.log(`买入持有：无费买入 ${coinNoFee.toFixed(6)} BTC，收费买入 ${coinFee.toFixed(6)} BTC`);
+
+// 自定义参数回合分析检查
+console.log("\n=== 回合分析（单均线 MA3）===");
+const ana = analyzeParam(candles, { maType: "ma", maMode: "single", singlePeriod: 3, initialCash: 10000, feeRate: 0 });
+if (!Array.isArray(ana.rounds)) throw new Error("analyzeParam 未返回 rounds");
+if (ana.rounds.length === 0) throw new Error("MA3 单均线应产生至少一个回合");
+// 逐回合校验：账户口径收益率 = exitEquity/entryEquity − 1
+for (const r of ana.rounds) {
+  const expect = r.entryEquity > 0 ? r.exitEquity / r.entryEquity - 1 : 0;
+  if (Math.abs(expect - r.ret) > 1e-9) throw new Error(`回合收益率口径不符：${r.entryDate}`);
+  if (!isFinite(r.ret) || !isFinite(r.priceChange)) throw new Error("回合收益出现非有限值");
+  if (r.holdDays < 0) throw new Error("持有天数为负");
+}
+// 已平仓回合数应等于卖出笔数；持仓中回合 ≤ 1
+const sellCount = ana.trades.filter((t) => t.side === "sell").length;
+const closedRounds = ana.rounds.filter((r) => !r.open).length;
+const openRounds = ana.rounds.filter((r) => r.open).length;
+if (closedRounds !== sellCount) throw new Error(`已平仓回合(${closedRounds}) != 卖出笔数(${sellCount})`);
+if (openRounds > 1) throw new Error(`持仓中回合应 ≤ 1，实际 ${openRounds}`);
+if (ana.summary.winRate < 0 || ana.summary.winRate > 1) throw new Error("winRate 越界");
+console.log(`MA3：回合数=${ana.summary.roundCount}（持仓中 ${openRounds}） 胜率=${(ana.summary.winRate * 100).toFixed(1)}% 平均回合=${(ana.summary.avgRoundReturn * 100).toFixed(1)}% 总回报=${(ana.summary.totalReturn * 100).toFixed(1)}%`);
+
+// 双均线模式
+console.log("\n=== 回合分析（双均线 MA2/5）===");
+const ana2 = analyzeParam(candles, { maType: "ma", maMode: "double", shortPeriod: 2, longPeriod: 5, initialCash: 10000, feeRate: 0 });
+if (ana2.rounds.length === 0) throw new Error("双均线 MA2/5 应产生回合");
+if (ana2.maLines.length !== 2) throw new Error("双均线应返回两条均线");
+for (const r of ana2.rounds) {
+  const expect = r.entryEquity > 0 ? r.exitEquity / r.entryEquity - 1 : 0;
+  if (Math.abs(expect - r.ret) > 1e-9) throw new Error("双均线回合收益率口径不符");
+}
+console.log(`MA2/5：回合数=${ana2.summary.roundCount} 胜率=${(ana2.summary.winRate * 100).toFixed(1)}%`);
+
+// 手续费应降低同参数下的最终资产
+const anaFee = analyzeParam(candles, { maType: "ma", maMode: "single", singlePeriod: 3, initialCash: 10000, feeRate: 0.001 });
+if (anaFee.summary.finalEquity > ana.summary.finalEquity + 1e-6)
+  throw new Error("收费后回合分析最终资产反而更高");
+console.log(`MA3 手续费效果：无费=$${Math.round(ana.summary.finalEquity)}  收费(0.1%)=$${Math.round(anaFee.summary.finalEquity)}`);
 
 console.log("\n✓ 健全性检查通过");

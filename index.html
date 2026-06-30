@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BTC 行情量化回测</title>
-  <link rel="stylesheet" href="css/style.css?v=20260630b" />
+  <link rel="stylesheet" href="css/style.css?v=20260630c" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -103,6 +103,39 @@
       <span id="runStatus" class="status"></span>
     </section>
 
+    <section class="panel">
+      <h2>自定义 MA / EMA 回合分析</h2>
+      <p class="hint" style="margin:-8px 0 12px">指定一个均线参数，计算该参数下的买卖点与整体回报，并逐回合（一次买入+卖出为一回合）统计收益率。择时模式跟随上方「均线模式」。</p>
+      <div class="grid">
+        <label>均线类型
+          <select id="analyzeMaType">
+            <option value="ma" selected>MA</option>
+            <option value="ema">EMA</option>
+          </select>
+        </label>
+        <label id="singlePeriodField">单均线周期
+          <input id="singlePeriod" type="number" value="50" min="2" />
+        </label>
+        <label id="shortPeriodField" class="hidden">短周期
+          <input id="shortPeriod" type="number" value="20" min="2" />
+        </label>
+        <label id="longPeriodField" class="hidden">长周期
+          <input id="longPeriod" type="number" value="60" min="3" />
+        </label>
+      </div>
+      <button id="analyzeBtn" disabled>分析</button>
+      <span id="analyzeStatus" class="status"></span>
+
+      <div id="analyzeResults" style="display:none">
+        <h3>整体表现</h3>
+        <div id="analyzeSummary"></div>
+        <h3>买卖点（K 线 + 均线 + 进出标注）</h3>
+        <div id="analyzeChart" class="chart"></div>
+        <h3>逐回合收益明细</h3>
+        <div id="roundsTable"></div>
+      </div>
+    </section>
+
     <section class="panel" id="resultsPanel" style="display:none">
       <h2>3. 结果</h2>
 
@@ -149,11 +182,11 @@ EMA_t = C_t × k + EMA_{t-1} × (1 − k)</pre>
     <p>纯前端运行，数据与计算均在你的浏览器本地完成。仅供研究，不构成投资建议。</p>
   </footer>
 
-  <script src="js/indicators.js?v=20260630b"></script>
-  <script src="js/data.js?v=20260630b"></script>
-  <script src="js/strategies.js?v=20260630b"></script>
-  <script src="js/backtest.js?v=20260630b"></script>
-  <script src="js/charts.js?v=20260630b"></script>
-  <script src="js/app.js?v=20260630b"></script>
+  <script src="js/indicators.js?v=20260630c"></script>
+  <script src="js/data.js?v=20260630c"></script>
+  <script src="js/strategies.js?v=20260630c"></script>
+  <script src="js/backtest.js?v=20260630c"></script>
+  <script src="js/charts.js?v=20260630c"></script>
+  <script src="js/app.js?v=20260630c"></script>
 </body>
 </html>

@@ -44,6 +44,16 @@ $("feeEnabled").addEventListener("change", () => {
   $("feeRate").disabled = !$("feeEnabled").checked;
 });
 
+// 回合分析栏目的单/双均线输入随上方「均线模式」显隐
+function syncAnalyzeFields() {
+  const isDouble = $("maMode").value === "double";
+  $("singlePeriodField").classList.toggle("hidden", isDouble);
+  $("shortPeriodField").classList.toggle("hidden", !isDouble);
+  $("longPeriodField").classList.toggle("hidden", !isDouble);
+}
+$("maMode").addEventListener("change", syncAnalyzeFields);
+syncAnalyzeFields();
+
 function setDataStatus(msg, isError) {
   const el = $("dataStatus");
   el.textContent = msg;
@@ -54,6 +64,7 @@ function setDataStatus(msg, isError) {
 $("loadBtn").addEventListener("click", async () => {
   $("loadBtn").disabled = true;
   $("runBtn").disabled = true;
+  $("analyzeBtn").disabled = true;
   setDataStatus("加载中…", false);
   try {
     if ($("source").value === "builtin") {
@@ -84,6 +95,7 @@ $("loadBtn").addEventListener("click", async () => {
         : "");
     setDataStatus(`已加载 ${candles.length} 根 K 线（${candles[0].date} ~ ${candles[candles.length - 1].date}）${srcNote}`, false);
     $("runBtn").disabled = false;
+    $("analyzeBtn").disabled = false;
   } catch (err) {
     candles = null;
     setDataStatus("加载失败：" + err.message, true);
@@ -126,6 +138,46 @@ $("runBtn").addEventListener("click", () => {
     } catch (err) {
       $("runStatus").textContent = "失败：" + err.message;
       $("runStatus").style.color = "#ef5350";
+    }
+  }, 30);
+});
+
+// 自定义参数回合分析
+$("analyzeBtn").addEventListener("click", () => {
+  if (!candles) return;
+  $("analyzeStatus").textContent = "计算中…";
+  $("analyzeStatus").style.color = "#8b98a5";
+
+  setTimeout(() => {
+    try {
+      const maMode = $("maMode").value;
+      const cfg = {
+        maType: $("analyzeMaType").value,
+        maMode,
+        initialCash: parseFloat($("initialCash").value) || 10000,
+        feeRate: $("feeEnabled").checked ? (parseFloat($("feeRate").value) || 0) / 100 : 0,
+      };
+      if (maMode === "double") {
+        cfg.shortPeriod = parseInt($("shortPeriod").value);
+        cfg.longPeriod = parseInt($("longPeriod").value);
+        if (!cfg.shortPeriod || !cfg.longPeriod) throw new Error("请填写短/长周期");
+        if (cfg.shortPeriod >= cfg.longPeriod) throw new Error("短周期需小于长周期");
+      } else {
+        cfg.singlePeriod = parseInt($("singlePeriod").value);
+        if (!cfg.singlePeriod || cfg.singlePeriod < 2) throw new Error("请填写有效的均线周期（≥2）");
+      }
+
+      const t0 = performance.now();
+      const result = analyzeParam(candles, cfg);
+      const ms = Math.round(performance.now() - t0);
+
+      renderAnalyze(result);
+      $("analyzeStatus").textContent = `完成（${ms} ms，${result.summary.roundCount} 回合）`;
+      $("analyzeStatus").style.color = "#26a69a";
+      $("analyzeResults").scrollIntoView({ behavior: "smooth" });
+    } catch (err) {
+      $("analyzeStatus").textContent = "失败：" + err.message;
+      $("analyzeStatus").style.color = "#ef5350";
     }
   }, 30);
 });

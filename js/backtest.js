@@ -150,6 +150,92 @@ function rollingBest4Y(candles, closes, cfg) {
   return out;
 }
 
+// 自定义单参数回合分析：用户指定一个 MA/EMA 周期（或双均线短/长），
+// 跑一次择时回测，并把成交按「买入→卖出」配对成回合，逐回合算收益。
+// 回合收益率按账户资产口径（含手续费）：卖出后总资产 / 买入前总资产 − 1。
+function analyzeParam(candles, cfg) {
+  const closes = candles.map((c) => c.close);
+  const maFn = cfg.maType === "ema" ? ema : sma;
+  const TYPE = cfg.maType.toUpperCase();
+  const feeRate = cfg.feeRate || 0;
+  const initialCash = cfg.initialCash || 10000;
+
+  let signals, maLines;
+  if (cfg.maMode === "double") {
+    const shortArr = maFn(closes, cfg.shortPeriod);
+    const longArr = maFn(closes, cfg.longPeriod);
+    signals = doubleMaSignals(shortArr, longArr);
+    maLines = [
+      { name: `${TYPE}${cfg.shortPeriod}`, data: shortArr },
+      { name: `${TYPE}${cfg.longPeriod}`, data: longArr },
+    ];
+  } else {
+    const arr = maFn(closes, cfg.singlePeriod);
+    signals = singleMaSignals(closes, arr);
+    maLines = [{ name: `${TYPE}${cfg.singlePeriod}`, data: arr }];
+  }
+
+  const { equity, trades, stats } = backtestTiming(candles, closes, initialCash, signals, feeRate);
+
+  // 配对成回合：trades 中 buy/sell 严格交替（全仓进出）。
+  const dayMs = DAY_MS;
+  const rounds = [];
+  let entry = null;
+  let prevEquity = initialCash; // 上一笔成交后的总资产，作为下一回合买入前资产
+  for (const t of trades) {
+    if (t.side === "buy") {
+      entry = {
+        entryDate: t.date, entryPrice: t.price,
+        entryEquity: prevEquity, // 买入前总资产
+      };
+    } else if (t.side === "sell" && entry) {
+      const exitEquity = t.equityAfter;
+      const ret = entry.entryEquity > 0 ? exitEquity / entry.entryEquity - 1 : 0;
+      const priceChange = entry.entryPrice > 0 ? t.price / entry.entryPrice - 1 : 0;
+      const holdDays = Math.round((Date.parse(t.date) - Date.parse(entry.entryDate)) / dayMs);
+      rounds.push({
+        ...entry, exitDate: t.date, exitPrice: t.price, exitEquity,
+        ret, priceChange, holdDays, open: false,
+      });
+      entry = null;
+    }
+    prevEquity = t.equityAfter;
+  }
+  // 末尾未平仓的买入：用最后一根资产估算浮动收益
+  let holdingOpen = false;
+  if (entry) {
+    holdingOpen = true;
+    const exitEquity = equity[equity.length - 1];
+    const lastPrice = closes[closes.length - 1];
+    const ret = entry.entryEquity > 0 ? exitEquity / entry.entryEquity - 1 : 0;
+    const priceChange = entry.entryPrice > 0 ? lastPrice / entry.entryPrice - 1 : 0;
+    const holdDays = Math.round((candles[candles.length - 1].time - Date.parse(entry.entryDate)) / dayMs);
+    rounds.push({
+      ...entry, exitDate: candles[candles.length - 1].date, exitPrice: lastPrice, exitEquity,
+      ret, priceChange, holdDays, open: true,
+    });
+  }
+
+  const closed = rounds.filter((r) => !r.open);
+  const wins = closed.filter((r) => r.ret > 0).length;
+  const rets = rounds.map((r) => r.ret);
+  const summary = {
+    totalReturn: stats.totalReturn,
+    finalEquity: stats.finalEquity,
+    maxDrawdown: stats.maxDrawdown,
+    roundCount: rounds.length,
+    closedCount: closed.length,
+    winRate: closed.length > 0 ? wins / closed.length : 0,
+    avgRoundReturn: rets.length > 0 ? rets.reduce((a, b) => a + b, 0) / rets.length : 0,
+    maxRoundReturn: rets.length > 0 ? Math.max(...rets) : 0,
+    minRoundReturn: rets.length > 0 ? Math.min(...rets) : 0,
+    holdingOpen,
+    label: cfg.maMode === "double" ? `${TYPE}${cfg.shortPeriod}/${cfg.longPeriod}` : `${TYPE}${cfg.singlePeriod}`,
+  };
+
+  return { stats, trades, rounds, summary, maLines, equity, candles };
+}
+
 // 运行整套回测。返回所有结果供 UI 渲染。
 function runBacktest(candles, cfg) {
   const closes = candles.map((c) => c.close);

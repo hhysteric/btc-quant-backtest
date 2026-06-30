@@ -125,6 +125,21 @@ th { color: var(--muted); font-weight: 600; }
 .detail-link { color: var(--accent); text-decoration: none; }
 .detail-link:hover { text-decoration: underline; }
 
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.summary-card {
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.summary-label { font-size: 12px; color: var(--muted); }
+.summary-val { font-size: 16px; font-weight: 600; }
+
 .explain {
   margin: 16px 0;
   border: 1px solid var(--border);
