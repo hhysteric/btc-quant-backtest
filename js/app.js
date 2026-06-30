@@ -1,8 +1,20 @@
 // UI 编排：数据源切换、加载行情、运行回测。
 
-let candles = null;
+let candles = null;        // 策略回测视图的行情
+let analyzeCandles = null; // 单参数回合分析视图的行情（独立加载）
 
 const $ = (id) => document.getElementById(id);
+
+// 顶部标签页：在「策略回测」与「单参数回合分析」两个视图间切换
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const view = btn.dataset.view;
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    $("backtestView").classList.toggle("hidden", view !== "backtest");
+    $("analyzeView").classList.toggle("hidden", view !== "analyze");
+    if (typeof rerenderAllCharts === "function") rerenderAllCharts();
+  });
+});
 
 // 主题：深/浅色切换，localStorage 记住选择，默认深色。
 function applyTheme(theme) {
@@ -20,87 +32,126 @@ $("themeToggle").addEventListener("click", () => {
   if (typeof rerenderAllCharts === "function") rerenderAllCharts();
 });
 
-// 默认结束日期为今天
-$("endDate").value = new Date().toISOString().slice(0, 10);
+// 默认结束日期为今天（两个视图各一份）
+const _today = new Date().toISOString().slice(0, 10);
+$("endDate").value = _today;
+$("aEndDate").value = _today;
 
-// 数据源切换：内置/API 显示 API 字段（内置也用日期范围裁剪），文件显示上传字段
-function syncSourceFields() {
-  const v = $("source").value;
-  $("apiFields").classList.toggle("hidden", v === "file");
-  $("fileFields").classList.toggle("hidden", v !== "file");
-  // 内置数据不需要交易对/周期，仅用日期范围裁剪；隐去交易对与周期
-  const isBuiltin = v === "builtin";
-  $("symbol").closest("label").classList.toggle("hidden", isBuiltin);
-  $("interval").closest("label").classList.toggle("hidden", isBuiltin);
+// 数据源切换：内置/API 显示 API 字段（内置也用日期范围裁剪），文件显示上传字段。
+// prefix 区分两个视图的元素 id（回测视图无前缀，分析视图前缀 "a"）。
+function makeSyncSourceFields(prefix) {
+  const id = (base) => prefix + (prefix ? base[0].toUpperCase() + base.slice(1) : base);
+  return function () {
+    const v = $(id("source")).value;
+    $(id("apiFields")).classList.toggle("hidden", v === "file");
+    $(id("fileFields")).classList.toggle("hidden", v !== "file");
+    const isBuiltin = v === "builtin";
+    $(id("symbol")).closest("label").classList.toggle("hidden", isBuiltin);
+    $(id("interval")).closest("label").classList.toggle("hidden", isBuiltin);
+  };
 }
+const syncSourceFields = makeSyncSourceFields("");
+const syncAnalyzeSourceFields = makeSyncSourceFields("a");
 $("source").addEventListener("change", syncSourceFields);
+$("aSource").addEventListener("change", syncAnalyzeSourceFields);
 syncSourceFields();
+syncAnalyzeSourceFields();
 
 // 对数刻度开关
 $("logScale").addEventListener("change", () => setLogScale($("logScale").checked));
 
-// 手续费开关：勾选后费率输入框可编辑，否则禁用
+// 手续费开关：勾选后费率输入框可编辑，否则禁用（两个视图各一）
 $("feeEnabled").addEventListener("change", () => {
   $("feeRate").disabled = !$("feeEnabled").checked;
 });
+$("aFeeEnabled").addEventListener("change", () => {
+  $("aFeeRate").disabled = !$("aFeeEnabled").checked;
+});
 
-// 回合分析栏目的单/双均线输入随上方「均线模式」显隐
+// 回合分析视图的单/双均线输入随本视图「均线模式」显隐
 function syncAnalyzeFields() {
-  const isDouble = $("maMode").value === "double";
+  const isDouble = $("analyzeMaMode").value === "double";
   $("singlePeriodField").classList.toggle("hidden", isDouble);
   $("shortPeriodField").classList.toggle("hidden", !isDouble);
   $("longPeriodField").classList.toggle("hidden", !isDouble);
 }
-$("maMode").addEventListener("change", syncAnalyzeFields);
+$("analyzeMaMode").addEventListener("change", syncAnalyzeFields);
 syncAnalyzeFields();
 
-function setDataStatus(msg, isError) {
-  const el = $("dataStatus");
+function setStatus(elId, msg, isError) {
+  const el = $(elId);
   el.textContent = msg;
   el.style.color = isError ? "#ef5350" : "#26a69a";
 }
+function setDataStatus(msg, isError) { setStatus("dataStatus", msg, isError); }
 
-// 加载行情
+// 按视图前缀读取数据源字段并加载行情，返回 candle 数组。
+// prefix="" 为回测视图，prefix="a" 为分析视图。
+async function loadCandlesFor(prefix) {
+  const id = (base) => prefix + (prefix ? base[0].toUpperCase() + base.slice(1) : base);
+  const src = $(id("source")).value;
+  if (src === "builtin") {
+    const all = await loadBuiltinBtc(true);
+    const startMs = Date.parse($(id("startDate")).value);
+    const endMs = Date.parse($(id("endDate")).value) + 86400000;
+    return all.filter((c) =>
+      (isNaN(startMs) || c.time >= startMs) && (isNaN(endMs) || c.time < endMs)
+    );
+  } else if (src === "api") {
+    const symbol = $(id("symbol")).value.trim().toUpperCase();
+    const interval = $(id("interval")).value;
+    const startMs = Date.parse($(id("startDate")).value);
+    const endMs = Date.parse($(id("endDate")).value) + 86400000;
+    if (isNaN(startMs) || isNaN(endMs)) throw new Error("请选择有效的起止日期");
+    return await fetchBinanceKlines(symbol, interval, startMs, endMs);
+  } else {
+    const file = $(id("fileInput")).files[0];
+    if (!file) throw new Error("请先选择文件");
+    return await parseFile(file);
+  }
+}
+
+function srcNoteFor(prefix) {
+  const id = (base) => prefix + (prefix ? base[0].toUpperCase() + base.slice(1) : base);
+  const src = $(id("source")).value;
+  if (src === "builtin") return "，内置历史 + API 补最新";
+  if (src === "api" && typeof _workingHost === "string") return `，数据源 ${_workingHost.replace("https://", "")}`;
+  return "";
+}
+
+// 回测视图：加载行情
 $("loadBtn").addEventListener("click", async () => {
   $("loadBtn").disabled = true;
   $("runBtn").disabled = true;
-  $("analyzeBtn").disabled = true;
   setDataStatus("加载中…", false);
   try {
-    if ($("source").value === "builtin") {
-      const all = await loadBuiltinBtc(true);
-      // 用日期范围裁剪（留空则用全部）
-      const startMs = Date.parse($("startDate").value);
-      const endMs = Date.parse($("endDate").value) + 86400000;
-      candles = all.filter((c) =>
-        (isNaN(startMs) || c.time >= startMs) && (isNaN(endMs) || c.time < endMs)
-      );
-    } else if ($("source").value === "api") {
-      const symbol = $("symbol").value.trim().toUpperCase();
-      const interval = $("interval").value;
-      const startMs = Date.parse($("startDate").value);
-      const endMs = Date.parse($("endDate").value) + 86400000;
-      if (isNaN(startMs) || isNaN(endMs)) throw new Error("请选择有效的起止日期");
-      candles = await fetchBinanceKlines(symbol, interval, startMs, endMs);
-    } else {
-      const file = $("fileInput").files[0];
-      if (!file) throw new Error("请先选择文件");
-      candles = await parseFile(file);
-    }
+    candles = await loadCandlesFor("");
     if (!candles || candles.length < 10) throw new Error("数据量过少，无法回测");
-    const srcNote = $("source").value === "builtin"
-      ? "，内置历史 + API 补最新"
-      : ($("source").value === "api" && typeof _workingHost === "string"
-        ? `，数据源 ${_workingHost.replace("https://", "")}`
-        : "");
-    setDataStatus(`已加载 ${candles.length} 根 K 线（${candles[0].date} ~ ${candles[candles.length - 1].date}）${srcNote}`, false);
+    setDataStatus(`已加载 ${candles.length} 根 K 线（${candles[0].date} ~ ${candles[candles.length - 1].date}）${srcNoteFor("")}`, false);
     $("runBtn").disabled = false;
-    $("analyzeBtn").disabled = false;
   } catch (err) {
     candles = null;
     setDataStatus("加载失败：" + err.message, true);
   } finally {
     $("loadBtn").disabled = false;
+  }
+});
+
+// 分析视图：独立加载行情
+$("aLoadBtn").addEventListener("click", async () => {
+  $("aLoadBtn").disabled = true;
+  $("analyzeBtn").disabled = true;
+  setStatus("aDataStatus", "加载中…", false);
+  try {
+    analyzeCandles = await loadCandlesFor("a");
+    if (!analyzeCandles || analyzeCandles.length < 10) throw new Error("数据量过少，无法分析");
+    setStatus("aDataStatus", `已加载 ${analyzeCandles.length} 根 K 线（${analyzeCandles[0].date} ~ ${analyzeCandles[analyzeCandles.length - 1].date}）${srcNoteFor("a")}`, false);
+    $("analyzeBtn").disabled = false;
+  } catch (err) {
+    analyzeCandles = null;
+    setStatus("aDataStatus", "加载失败：" + err.message, true);
+  } finally {
+    $("aLoadBtn").disabled = false;
   }
 });
 
@@ -144,18 +195,18 @@ $("runBtn").addEventListener("click", () => {
 
 // 自定义参数回合分析
 $("analyzeBtn").addEventListener("click", () => {
-  if (!candles) return;
+  if (!analyzeCandles) return;
   $("analyzeStatus").textContent = "计算中…";
   $("analyzeStatus").style.color = "#8b98a5";
 
   setTimeout(() => {
     try {
-      const maMode = $("maMode").value;
+      const maMode = $("analyzeMaMode").value;
       const cfg = {
         maType: $("analyzeMaType").value,
         maMode,
-        initialCash: parseFloat($("initialCash").value) || 10000,
-        feeRate: $("feeEnabled").checked ? (parseFloat($("feeRate").value) || 0) / 100 : 0,
+        initialCash: parseFloat($("aInitialCash").value) || 10000,
+        feeRate: $("aFeeEnabled").checked ? (parseFloat($("aFeeRate").value) || 0) / 100 : 0,
       };
       if (maMode === "double") {
         cfg.shortPeriod = parseInt($("shortPeriod").value);
@@ -168,7 +219,7 @@ $("analyzeBtn").addEventListener("click", () => {
       }
 
       const t0 = performance.now();
-      const result = analyzeParam(candles, cfg);
+      const result = analyzeParam(analyzeCandles, cfg);
       const ms = Math.round(performance.now() - t0);
 
       renderAnalyze(result);

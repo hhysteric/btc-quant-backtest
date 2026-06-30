@@ -53,6 +53,26 @@ header {
 header h1 { margin: 0; font-size: 24px; color: var(--accent); }
 header .sub { margin: 4px 0 16px; color: var(--muted); font-size: 14px; }
 
+.tab-bar { display: flex; gap: 8px; }
+.tab-btn {
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.tab-btn:hover:not(.active) { color: var(--text); }
+.tab-btn.active {
+  color: var(--accent);
+  border-color: var(--border);
+  background: var(--bg);
+}
+
 main { max-width: 1180px; margin: 0 auto; padding: 24px 32px; }
 
 .panel {
@@ -121,6 +141,8 @@ th { color: var(--muted); font-weight: 600; }
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 .best { background: rgba(247, 147, 26, 0.12); }
+.streak-row { background: rgba(139, 152, 165, 0.08); font-size: 12px; }
+.streak-row td { border-bottom: 1px solid var(--border); }
 
 .detail-link { color: var(--accent); text-decoration: none; }
 .detail-link:hover { text-decoration: underline; }

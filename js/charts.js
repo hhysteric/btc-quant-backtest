@@ -527,11 +527,15 @@ function renderAnalyzeSummary(result) {
   const cell = (label, valHtml) =>
     `<div class="summary-card"><span class="summary-label">${label}</span><span class="summary-val">${valHtml}</span></div>`;
   const holdNote = s.holdingOpen ? "（末回合持仓中）" : "";
+  const erVal = s.er == null
+    ? "—"
+    : `${s.er.toFixed(2)}<span class="summary-label" style="font-size:11px"> （${s.er >= 0.5 ? "趋势" : s.er >= 0.3 ? "中性" : "震荡"}）</span>`;
   const html = `<div class="summary-cards">
     ${cell("参数", s.label)}
     ${cell("总回报率", pct(s.totalReturn))}
     ${cell("最终资产", money(s.finalEquity))}
     ${cell("最大回撤", `<span class="neg">-${(s.maxDrawdown * 100).toFixed(1)}%</span>`)}
+    ${cell(`趋势效率 ER(${s.erPeriod})`, erVal)}
     ${cell("回合数", `${s.roundCount}${holdNote}`)}
     ${cell("胜率（已平仓）", (s.winRate * 100).toFixed(1) + "%")}
     ${cell("平均回合收益", pct(s.avgRoundReturn))}
@@ -542,11 +546,41 @@ function renderAnalyzeSummary(result) {
 }
 
 function renderRoundsTable(result) {
+  const rounds = result.rounds;
+  if (rounds.length === 0) {
+    document.getElementById("roundsTable").innerHTML =
+      `<p class="hint">该参数在所选区间内无完整买卖回合（可能始终未触发进出）。</p>`;
+    return;
+  }
+
+  // 按「回合收益（账户）」正负号切分连续区间：>0 连赢、<0 连亏、=0 单独成段。
+  const sign = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
   let html = `<table><thead><tr>
     <th>回合</th><th>买入日</th><th>买入价</th><th>卖出日</th><th>卖出价</th>
     <th>持有天数</th><th>价格涨跌</th><th>回合收益（账户）</th><th>状态</th>
     </tr></thead><tbody>`;
-  result.rounds.forEach((r, i) => {
+
+  // 连续区间的合计行：复利乘积 ∏(1+ret)−1，跨多个同向回合。
+  const streakRow = (run, startIdx) => {
+    const compound = run.reduce((acc, r) => acc * (1 + r.ret), 1) - 1;
+    const s = sign(run[0].ret);
+    const label = s > 0 ? `连赢 ${run.length} 回合合计` : `连亏 ${run.length} 回合合计`;
+    const cls = s > 0 ? "pos" : "neg";
+    return `<tr class="streak-row">
+      <td colspan="7" style="text-align:right;color:var(--muted)">↳ 回合 ${startIdx + 1}–${startIdx + run.length} ${label}</td>
+      <td class="${cls}"><strong>${pct(compound)}</strong></td>
+      <td></td>
+    </tr>`;
+  };
+
+  let run = [];
+  let runStart = 0;
+  const flush = () => {
+    if (run.length >= 2) html += streakRow(run, runStart);
+    run = [];
+  };
+
+  rounds.forEach((r, i) => {
     html += `<tr class="${r.open ? "best" : ""}">
       <td>${i + 1}</td>
       <td>${r.entryDate}</td>
@@ -558,11 +592,20 @@ function renderRoundsTable(result) {
       <td>${pct(r.ret)}</td>
       <td>${r.open ? "持仓中" : "已平仓"}</td>
     </tr>`;
+
+    const s = sign(r.ret);
+    if (run.length === 0 || (s !== 0 && sign(run[0].ret) === s)) {
+      if (run.length === 0) runStart = i;
+      run.push(r);
+    } else {
+      flush();
+      runStart = i;
+      run = [r];
+    }
   });
+  flush();
+
   html += "</tbody></table>";
-  if (result.rounds.length === 0) {
-    html = `<p class="hint">该参数在所选区间内无完整买卖回合（可能始终未触发进出）。</p>`;
-  }
   document.getElementById("roundsTable").innerHTML = html;
 }
 
@@ -573,8 +616,13 @@ function renderAnalyzeChart(result) {
   analyzeChartInstance = analyzeChartInstance || echarts.init(el);
 
   const candles = result.candles;
-  const dates = candles.map((c) => c.date);
-  const ohlc = candles.map((c) => [c.open, c.close, c.low, c.high]);
+  const histDates = candles.map((c) => c.date);
+  const futureDates = result.futureDates || [];
+  const dates = histDates.concat(futureDates); // 历史 + 未来 100 天
+  const nHist = histDates.length;
+  // K 线只画历史；未来段补 null 占位以对齐 x 轴。
+  const ohlc = candles.map((c) => [c.open, c.close, c.low, c.high])
+    .concat(futureDates.map(() => [null, null, null, null]));
 
   const series = [{
     name: "BTC",
@@ -588,14 +636,44 @@ function renderAnalyzeChart(result) {
 
   const maColors = ["#f7931a", "#42a5f5"];
   (result.maLines || []).forEach((line, i) => {
+    const color = maColors[i % maColors.length];
+    const hist = line.data.map((v) => (v == null ? null : +v.toFixed(2)));
+    // 历史实线：历史段有值、未来段 null
     series.push({
       name: line.name,
       type: "line",
       showSymbol: false,
-      lineStyle: { width: 1.5, color: maColors[i % maColors.length] },
-      itemStyle: { color: maColors[i % maColors.length] },
-      data: line.data.map((v) => (v == null ? null : +v.toFixed(2))),
+      lineStyle: { width: 1.5, color },
+      itemStyle: { color },
+      data: hist.concat(futureDates.map(() => null)),
     });
+    // 未来虚线延伸：前置 null 占位至当前，再接未来段；首点接上历史末值以连续。
+    if (line.future && line.future.length) {
+      const lead = new Array(nHist).fill(null);
+      if (nHist > 0) lead[nHist - 1] = hist[nHist - 1]; // 衔接历史末点
+      series.push({
+        name: line.name + " 延伸",
+        type: "line",
+        showSymbol: false,
+        lineStyle: { width: 1.5, color, type: "dashed", opacity: 0.85 },
+        itemStyle: { color },
+        data: lead.concat(line.future.map((v) => (v == null ? null : +v.toFixed(2)))),
+      });
+    }
+  });
+
+  // 趋势效率 ER 曲线，挂右轴（0~1）。未来段无 ER，补 null。
+  const erData = (result.erSeries || []).map((v) => (v == null ? null : +v.toFixed(3)))
+    .concat(futureDates.map(() => null));
+  series.push({
+    name: "趋势效率 ER",
+    type: "line",
+    yAxisIndex: 1,
+    showSymbol: false,
+    lineStyle: { width: 1, color: "#ab47bc", opacity: 0.8 },
+    itemStyle: { color: "#ab47bc" },
+    areaStyle: { color: "#ab47bc", opacity: 0.06 },
+    data: erData,
   });
 
   const dateIndex = new Map(dates.map((d, i) => [d, i]));
@@ -612,18 +690,38 @@ function renderAnalyzeChart(result) {
     label: { color: "#fff", fontSize: 10, formatter: (p) => p.value },
     data: markData,
   };
+  // 在「当前/未来」分界处画一条竖向参考线。
+  if (futureDates.length && nHist > 0) {
+    series[0].markLine = {
+      symbol: "none",
+      silent: true,
+      lineStyle: { color: THEME.axis, type: "dashed", opacity: 0.6 },
+      label: { color: THEME.axis, formatter: "今日", position: "insideEndTop", fontSize: 11 },
+      data: [{ xAxis: histDates[nHist - 1] }],
+    };
+  }
 
   analyzeChartInstance.setOption({
     backgroundColor: "transparent",
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
     legend: { textStyle: { color: THEME.legend }, top: 0 },
-    grid: { left: 88, right: 24, top: 32, bottom: 50 },
+    grid: { left: 88, right: 56, top: 32, bottom: 50 },
     xAxis: { type: "category", data: dates, axisLabel: { color: THEME.axis }, scale: true },
-    yAxis: {
-      scale: true,
-      axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
-      splitLine: { lineStyle: { color: THEME.grid } },
-    },
+    yAxis: [
+      {
+        scale: true,
+        axisLabel: { color: THEME.axis, formatter: (v) => money(v) },
+        splitLine: { lineStyle: { color: THEME.grid } },
+      },
+      {
+        name: "ER",
+        min: 0, max: 1,
+        position: "right",
+        axisLabel: { color: THEME.axis, formatter: (v) => v.toFixed(1) },
+        splitLine: { show: false },
+        nameTextStyle: { color: THEME.axis },
+      },
+    ],
     dataZoom: zoomConfig(0),
     series,
   }, true);

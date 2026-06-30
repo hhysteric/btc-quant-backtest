@@ -238,6 +238,50 @@ if (openRounds > 1) throw new Error(`持仓中回合应 ≤ 1，实际 ${openRou
 if (ana.summary.winRate < 0 || ana.summary.winRate > 1) throw new Error("winRate 越界");
 console.log(`MA3：回合数=${ana.summary.roundCount}（持仓中 ${openRounds}） 胜率=${(ana.summary.winRate * 100).toFixed(1)}% 平均回合=${(ana.summary.avgRoundReturn * 100).toFixed(1)}% 总回报=${(ana.summary.totalReturn * 100).toFixed(1)}%`);
 
+// 趋势效率 ER 检查：序列与 candles 等长；非空值落在 [0,1]；summary.er 为末值。
+console.log("\n=== 趋势效率 ER 检查 ===");
+if (!Array.isArray(ana.erSeries) || ana.erSeries.length !== candles.length)
+  throw new Error("erSeries 长度应与 candles 等长");
+let erNonNull = 0, erLastSeen = null;
+for (const v of ana.erSeries) {
+  if (v == null) continue;
+  if (!isFinite(v) || v < 0 || v > 1) throw new Error(`ER 越界或非有限：${v}`);
+  erNonNull++; erLastSeen = v;
+}
+if (erNonNull === 0) throw new Error("ER 序列全空");
+if (ana.summary.er == null || Math.abs(ana.summary.er - erLastSeen) > 1e-12)
+  throw new Error("summary.er 应等于 erSeries 末个非空值");
+if (ana.summary.erPeriod !== 3) throw new Error("单均线 MA3 的 erPeriod 应为 3");
+// 极端：纯单调上行序列 ER 应接近 1；纯锯齿来回 ER 应接近 0
+const upOnly = Array.from({ length: 20 }, (_, i) => 100 + i);
+const er1 = analyzeParam(upOnly.map((c, i) => ({ time: i * 86400000, date: "2020-01-01", open: c, high: c, low: c, close: c })),
+  { maType: "ma", maMode: "single", singlePeriod: 5, initialCash: 10000, feeRate: 0 });
+if (er1.summary.er < 0.99) throw new Error(`单调上行 ER 应≈1，实际 ${er1.summary.er}`);
+console.log(`MA3 ER 非空点=${erNonNull}  末值 ER=${ana.summary.er.toFixed(3)}（窗口 ${ana.summary.erPeriod}）  单调序列 ER=${er1.summary.er.toFixed(3)}`);
+
+// 未来 100 天均线延伸检查：futureDates 长 100；每条 maLine 带等长 future；价格恒定时
+// 均线应朝最后收盘价单调收敛（差值绝对值不增）。
+console.log("\n=== 未来均线延伸检查（价格恒定）===");
+if (ana.futureDays !== 100) throw new Error("futureDays 应为 100");
+if (!Array.isArray(ana.futureDates) || ana.futureDates.length !== 100)
+  throw new Error("futureDates 长度应为 100");
+const lastClose = candles.at(-1).close;
+for (const line of ana.maLines) {
+  if (!Array.isArray(line.future) || line.future.length !== 100)
+    throw new Error(`${line.name} future 长度应为 100`);
+  // 末点应非常接近最后收盘价（横盘足够久后均线趋于现价）
+  const tail = line.future.at(-1);
+  if (!isFinite(tail)) throw new Error(`${line.name} future 末点非有限`);
+  // 向现价收敛：与现价距离应单调不增
+  let prevDist = Infinity;
+  for (const v of line.future) {
+    const dist = Math.abs(v - lastClose);
+    if (dist > prevDist + 1e-6) throw new Error(`${line.name} 延伸未向现价收敛`);
+    prevDist = dist;
+  }
+}
+console.log(`MA3 延伸：现价=$${lastClose}  延伸末点=$${ana.maLines[0].future.at(-1).toFixed(2)}（应≈现价）`);
+
 // 双均线模式
 console.log("\n=== 回合分析（双均线 MA2/5）===");
 const ana2 = analyzeParam(candles, { maType: "ma", maMode: "double", shortPeriod: 2, longPeriod: 5, initialCash: 10000, feeRate: 0 });

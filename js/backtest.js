@@ -153,26 +153,65 @@ function rollingBest4Y(candles, closes, cfg) {
 // 自定义单参数回合分析：用户指定一个 MA/EMA 周期（或双均线短/长），
 // 跑一次择时回测，并把成交按「买入→卖出」配对成回合，逐回合算收益。
 // 回合收益率按账户资产口径（含手续费）：卖出后总资产 / 买入前总资产 − 1。
+// 考夫曼趋势效率 ER(n)：方向位移 / 路径总长度，落在 [0,1]。
+// 接近 1 → 单边趋势明显（择时类策略友好）；接近 0 → 来回震荡（易被反复打脸）。
+function efficiencyRatio(closes, period) {
+  const out = new Array(closes.length).fill(null);
+  for (let i = period; i < closes.length; i++) {
+    const change = Math.abs(closes[i] - closes[i - period]);
+    let volatility = 0;
+    for (let j = i - period + 1; j <= i; j++) volatility += Math.abs(closes[j] - closes[j - 1]);
+    out[i] = volatility > 0 ? change / volatility : 0;
+  }
+  return out;
+}
+
+// 未来 N 天均线延伸：假设价格恒定在最后收盘价不动，把收盘序列向后补 N 个相同值，
+// 重算均线后取尾段。用于直观展示「若就地横盘，均线会怎样向现价收敛」。
+function projectMaForward(closes, maFn, period, days) {
+  const last = closes[closes.length - 1];
+  const extended = closes.concat(new Array(days).fill(last));
+  const full = maFn(extended, period);
+  return full.slice(closes.length); // 长度 = days
+}
+
 function analyzeParam(candles, cfg) {
   const closes = candles.map((c) => c.close);
   const maFn = cfg.maType === "ema" ? ema : sma;
   const TYPE = cfg.maType.toUpperCase();
   const feeRate = cfg.feeRate || 0;
   const initialCash = cfg.initialCash || 10000;
+  const FUTURE_DAYS = 100;
 
-  let signals, maLines;
+  let signals, maLines, erPeriod;
   if (cfg.maMode === "double") {
     const shortArr = maFn(closes, cfg.shortPeriod);
     const longArr = maFn(closes, cfg.longPeriod);
     signals = doubleMaSignals(shortArr, longArr);
     maLines = [
-      { name: `${TYPE}${cfg.shortPeriod}`, data: shortArr },
-      { name: `${TYPE}${cfg.longPeriod}`, data: longArr },
+      { name: `${TYPE}${cfg.shortPeriod}`, data: shortArr, future: projectMaForward(closes, maFn, cfg.shortPeriod, FUTURE_DAYS) },
+      { name: `${TYPE}${cfg.longPeriod}`, data: longArr, future: projectMaForward(closes, maFn, cfg.longPeriod, FUTURE_DAYS) },
     ];
+    erPeriod = cfg.longPeriod; // 双均线用长周期作为趋势效率的观察窗口
   } else {
     const arr = maFn(closes, cfg.singlePeriod);
     signals = singleMaSignals(closes, arr);
-    maLines = [{ name: `${TYPE}${cfg.singlePeriod}`, data: arr }];
+    maLines = [{ name: `${TYPE}${cfg.singlePeriod}`, data: arr, future: projectMaForward(closes, maFn, cfg.singlePeriod, FUTURE_DAYS) }];
+    erPeriod = cfg.singlePeriod;
+  }
+
+  // 趋势效率序列（窗口取均线周期），与 candles 等长；末值放入 summary。
+  const erSeries = efficiencyRatio(closes, erPeriod);
+  let erLast = null;
+  for (let i = erSeries.length - 1; i >= 0; i--) {
+    if (erSeries[i] != null) { erLast = erSeries[i]; break; }
+  }
+
+  // 未来日期序列（沿用最后一根的日历日步进，按自然日 +1 天）。
+  const lastTime = candles[candles.length - 1].time;
+  const futureDates = [];
+  for (let d = 1; d <= FUTURE_DAYS; d++) {
+    futureDates.push(new Date(lastTime + d * DAY_MS).toISOString().slice(0, 10));
   }
 
   const { equity, trades, stats } = backtestTiming(candles, closes, initialCash, signals, feeRate);
@@ -231,9 +270,11 @@ function analyzeParam(candles, cfg) {
     minRoundReturn: rets.length > 0 ? Math.min(...rets) : 0,
     holdingOpen,
     label: cfg.maMode === "double" ? `${TYPE}${cfg.shortPeriod}/${cfg.longPeriod}` : `${TYPE}${cfg.singlePeriod}`,
+    er: erLast,
+    erPeriod,
   };
 
-  return { stats, trades, rounds, summary, maLines, equity, candles };
+  return { stats, trades, rounds, summary, maLines, equity, candles, erSeries, futureDates, futureDays: FUTURE_DAYS };
 }
 
 // 运行整套回测。返回所有结果供 UI 渲染。
